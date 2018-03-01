@@ -10,10 +10,14 @@ end procedure
 ## Algorithm 2 redo, part 2: redo-ifchange procedure
 ```
 procedure redo-ifchange(args)
-  create .redo database if it does not already exist for each argument i do
-    if i.type does not exist then if i exists then
-      i.type ← source else
-      i.type ← target end if
+  create .redo database if it does not already exist
+  for each argument i do
+    if i.type does not exist then
+      if i exists then
+	i.type ← source
+      else
+	i.type ← target
+      end if
     end if
     if i.uptodate exists then
       record i as a regular prerequiste for its parent
