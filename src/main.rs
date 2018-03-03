@@ -124,7 +124,9 @@ impl Item {
     }
 
     fn find_builder(&self) -> Result<Builder> {
-        let mut path = PathBuf::from(&self.name);
+        let cwd = Path::new(".").canonicalize()?;
+
+        let mut path = cwd.join(&self.name);
         let fname = path.file_name()
             .chain_err(|| format!("Builder file name for {:?}", self))?
             .to_str()
@@ -132,19 +134,27 @@ impl Item {
             .to_owned();
 
         while path.pop() {
-            for suffix in FileSuffixTails::new(&fname) {
-                let is_default = suffix.is_empty() || suffix.chars().next() == Some('.');
-                let name = format!("{}{}.do", if is_default { "default" } else { "" }, suffix);
-
-                let candidate = path.join(name);
-                debug!("Considering path: {:?}", candidate);
-
-                if exists(&candidate)? {
-                    return Ok(Builder::new(&candidate, is_default)?);
-                };
+            if let Some(builder) = self.search_target_in_dir(&fname, &path)? {
+                return Ok(builder);
             }
         }
         return Err(format!("Could not find builder for {:?}", self).into());
+    }
+
+    fn search_target_in_dir(&self, fname: &str, dir: &Path) -> Result<Option<Builder>> {
+        for suffix in FileSuffixTails::new(&fname) {
+            let is_default = suffix.is_empty() || suffix.chars().next() == Some('.');
+            let name = format!("{}{}.do", if is_default { "default" } else { "" }, suffix);
+
+            let candidate = dir.join(name);
+            debug!("Considering path: {:?}", candidate);
+
+            if exists(&candidate)? {
+                return Ok(Some(Builder::new(&candidate, is_default)?));
+            };
+        }
+
+        Ok(None)
     }
 
     fn is_target(&self) -> Result<bool> {
