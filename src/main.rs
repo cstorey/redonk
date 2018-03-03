@@ -18,7 +18,6 @@ use std::process::Command;
 use std::fs;
 use std::io;
 use std::env;
-use std::ffi;
 
 use structopt::StructOpt;
 
@@ -104,7 +103,7 @@ impl Item {
 
     fn find_builder(&self) -> Result<Builder> {
         let mut path = PathBuf::from(&self.name);
-        let mut fname = path.file_name()
+        let fname = path.file_name()
             .chain_err(|| format!("Builder file name for {:?}", self))?
             .to_str()
             .chain_err(|| format!("Could not decode filename as utf-8: {:?}", path))?
@@ -160,15 +159,6 @@ struct Builder {
 }
 
 impl Builder {
-    fn specific(dofile: &Path) -> Result<Builder> {
-        let default = false;
-        Self::new(dofile, default)
-    }
-    fn default(dofile: &Path) -> Result<Builder> {
-        let default = true;
-        Self::new(dofile, default)
-    }
-
     fn new(dofile: &Path, default: bool) -> Result<Builder> {
         let dofile = dofile
             .canonicalize()
