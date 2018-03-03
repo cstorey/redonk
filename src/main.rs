@@ -18,6 +18,7 @@ use std::process::{self, Command};
 use std::fs;
 use std::io;
 use std::env;
+use std::ffi::OsStr;
 
 use structopt::StructOpt;
 
@@ -197,6 +198,49 @@ impl Builder {
         Ok(Builder { dofile, default })
     }
 
+    fn base_of<'a>(&self, target_name: &'a OsStr) -> Result<&'a OsStr> {
+        let target_fname = Path::new(target_name)
+            .file_name()
+            .chain_err(|| format!("Target {:?} has no file name?", &target_name))?
+            .to_str()
+            .chain_err(|| format!("Target file {:?} not utf-8 encoded?", &target_name))?;
+        let pattern = self.dofile
+            .file_name()
+            .chain_err(|| format!("Build file {:?} has no file name?", &target_name))?
+            .to_str()
+            .chain_err(|| format!("Build file {:?} not utf-8 encoded?", &target_name))?;
+
+        let default_prefix = "default";
+        let do_suffix = ".do";
+        let target_base = if pattern.starts_with(default_prefix) {
+            let p_tail = &pattern[default_prefix.len()..pattern.len() - do_suffix.len()];
+
+            let base_end = target_fname.len() - p_tail.len();
+            let t_tail = &target_fname[base_end..];
+
+            // Clearly, I've missed a way to not have to re-derive this.
+            // Maybe figure this out when scanning for build files?
+            assert_eq!(
+                p_tail,
+                t_tail,
+                "Pattern tail {:?} (from {:?}) should equal target tail: {:?} (from {:?})",
+                p_tail,
+                pattern,
+                t_tail,
+                target_fname
+            );
+            &target_fname[..base_end]
+        } else {
+            target_fname
+        };
+
+        debug!(
+            "Builder::base_of({:?}, {:?}) → {:?}",
+            self, target_name, target_base
+        );
+        Ok(OsStr::new(target_base))
+    }
+
     fn perform(&self, target: &Path) -> Result<()> {
         let tmpf = {
             let fname: &Path = target.as_ref();
@@ -213,28 +257,26 @@ impl Builder {
         };
 
         debug!(
-            "target path cmoponents: {:?}",
+            "target path components: {:?}",
             target.components().collect::<Vec<_>>()
         );
 
         let mut cmd = Command::new("sh");
         {
             let target = Path::new(".").join(target);
-            let dir = target.parent()
+            let target_dir = target.parent()
                 // .filter(|p| !p.is_empty())
                 .unwrap_or(Path::new("."));
             let target_name = target.file_name().chain_err(|| "Target has no file name?")?;
-            let target_stem = if self.default {
-                Path::new(target_name)
-                    .file_stem()
-                    .chain_err(|| format!("{:?} has no file stem", &target))?
+            let target_base = if self.default {
+                self.base_of(target_name)?
             } else {
                 target_name.as_ref()
             };
 
             debug!(
-                "target_name: {:?}; stem: {:?}; cwd: {:?}",
-                target_name, target_stem, dir
+                "target_name: {:?}; base: {:?}; cwd: {:?}",
+                target_name, target_base, target_dir
             );
             cmd.arg("-e")
                 // .arg("-x")
@@ -242,11 +284,14 @@ impl Builder {
                 // $1: Target name
                 .arg(target_name)
                 // $2: Basename of the target
-                .arg(&target_stem)
+                .arg(&target_base)
                 // $3: temporary output file.
                 .arg(tmpf.path().file_name()
                         .chain_err(|| format!("Filename of temporary file: {:?}", tmpf))?);
-            cmd.current_dir(dir);
+            // It _looks_ like the .do files need to be run from their
+            // current working directory., so things like `./CC foo bar` work.
+            // In other words, this is utterly wrong.
+            cmd.current_dir(target_dir);
         }
 
         cmd.stdout(tmpf.reopen()?);
