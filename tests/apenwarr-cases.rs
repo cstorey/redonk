@@ -107,6 +107,13 @@ fn t_100_args() {
 }
 
 #[test]
+fn t_101_atime() {
+    let tc = TestCase::new("101-atime").expect("setup");
+    tc.run().expect("101-atime");
+}
+
+
+#[test]
 fn t_110_compile() {
     let tc = TestCase::new("110-compile").expect("setup");
     tc.run().expect("110-compile");
