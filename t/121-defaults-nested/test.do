@@ -9,8 +9,12 @@ redo-ifchange \
 check()
 {
 	if [ "$(cat $1)" != "$2" ]; then
+		expected=$(mktemp /tmp/expected-XXXXXXXXXXX)
+		echo "$2" > $expected
 		echo "$1 should contain '$2'"
 		echo " ...got '$(cat $1)'"
+		diff -u "$expected" $1 || :
+		rm -f "$expected"
 		exit 44
 	fi
 }
