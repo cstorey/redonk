@@ -1,7 +1,10 @@
 #[macro_use]
 extern crate clap;
+extern crate env_logger;
 #[macro_use]
 extern crate error_chain;
+#[macro_use]
+extern crate log;
 extern crate serde;
 #[macro_use]
 extern crate serde_derive;
@@ -102,7 +105,7 @@ impl Item {
 
     fn is_target(&self) -> Result<bool> {
         let res = !exists(&self.name)?;
-        eprintln!("is_target: {:?} → {:?}", self, res);
+        debug!("is_target: {:?} → {:?}", self, res);
         Ok(res)
     }
 }
@@ -157,9 +160,9 @@ fn redo_ifchange(store: &mut Store, targets: &[PathBuf]) -> Result<()> {
             .unwrap_or_else(|| Item::new_target(&target));
 
         if it.is_target()? {
-            eprintln!("Target: {:?}: {:?}", target, it);
+            debug!("Target: {:?}: {:?}", target, it);
             let dofile = it.find_builder()?;
-            eprintln!(
+            debug!(
                 "Build: {:?} with {:?} in {:?}",
                 target,
                 dofile,
@@ -184,13 +187,13 @@ fn redo_ifchange(store: &mut Store, targets: &[PathBuf]) -> Result<()> {
 
             cmd.stdout(tmpf.reopen()?);
 
-            eprintln!("⇒ {:?} ({:?})", dofile, cmd);
+            debug!("⇒ {:?} ({:?})", dofile, cmd);
             let res = cmd.spawn()?.wait()?;
-            eprintln!("⇐ {:?}", dofile);
+            debug!("⇐ {:?}", dofile);
 
             assert!(res.success(), "Dofile: {:?} exited with {:?}", dofile, res);
 
-            eprintln!("{:?} → {:?}", tmpf.path(), it.name);
+            debug!("{:?} → {:?}", tmpf.path(), it.name);
             fs::rename(tmpf.path(), it.name).chain_err(|| "Persist output tempfile")?
         }
     }
@@ -199,14 +202,16 @@ fn redo_ifchange(store: &mut Store, targets: &[PathBuf]) -> Result<()> {
 }
 
 fn redo_ifcreate(_store: &mut Store, targets: &[PathBuf]) -> Result<()> {
-    eprintln!("redo-ifcreate {:?} ignored", targets);
+    debug!("redo-ifcreate {:?} ignored", targets);
     Ok(())
 }
 
 fn main() {
-    eprintln!("✭: {:?}", env::args().collect::<Vec<_>>());
+    env_logger::init();
+
+    debug!("✭: {:?}", env::args().collect::<Vec<_>>());
     let Opt { op, targets } = Opt::from_args();
-    eprintln!("op: {:?}; targets: {:?}", op, targets);
+    debug!("op: {:?}; targets: {:?}", op, targets);
     let targets = targets.into_iter().map(PathBuf::from).collect::<Vec<_>>();
 
     let mut store = Store::new().expect("Store::new");
