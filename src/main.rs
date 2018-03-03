@@ -14,12 +14,15 @@ extern crate structopt;
 extern crate tempfile;
 
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{self, Command};
 use std::fs;
 use std::io;
 use std::env;
 
 use structopt::StructOpt;
+
+const EXIT_SUCCESS: i32 = 0;
+const EXIT_FAILURE: i32 = 1;
 
 error_chain! {
     foreign_links {
@@ -131,11 +134,7 @@ impl Item {
         while path.pop() {
             for suffix in FileSuffixTails::new(&fname) {
                 let is_default = suffix.is_empty() || suffix.chars().next() == Some('.');
-                let name = format!(
-                        "{}{}.do",
-                        if is_default { "default" } else { "" },
-                        suffix
-                        );
+                let name = format!("{}{}.do", if is_default { "default" } else { "" }, suffix);
 
                 let candidate = path.join(name);
                 debug!("Considering path: {:?}", candidate);
@@ -155,7 +154,7 @@ impl Item {
     }
     fn redo(&self) -> Result<()> {
         if self.is_target()? {
-            debug!("Target: {:?}", self);
+            info!("Target: {:?}", self);
             let dofile = self.find_builder()?;
             debug!(
                 "Build: {:?} with {:?} in {:?}",
@@ -248,12 +247,13 @@ impl Builder {
         let res = cmd.spawn()?.wait()?;
         debug!("⇐ {:?}", self.dofile);
 
-        assert!(
-            res.success(),
-            "Dofile: {:?} exited with code:{:?}",
-            self.dofile,
-            res.code()
-        );
+        if !res.success() {
+            return Err(format!(
+                "Dofile: {:?} exited with code:{:?}",
+                self.dofile,
+                res.code()
+            ).into());
+        }
 
         debug!("{:?} → {:?}", tmpf.path(), target);
         fs::rename(tmpf.path(), &target).chain_err(|| "Persist output tempfile")?;
@@ -327,6 +327,18 @@ fn main() {
 
     debug!("✭: {:?}", env::args().collect::<Vec<_>>());
     let Opt { op, targets } = Opt::from_args();
+
+    let code = match run(op, &targets) {
+        Ok(_) => EXIT_SUCCESS,
+        Err(e) => {
+            eprintln!("Could not build targets: {:?}\n{:?}", targets, e);
+            EXIT_FAILURE
+        }
+    };
+    process::exit(code);
+}
+
+fn run(op: Operation, targets: &[String]) -> Result<()> {
     debug!(
         "op: {:?}; targets: {:?}; in:{:?}",
         op,
@@ -337,9 +349,13 @@ fn main() {
 
     let mut store = Store::new().expect("Store::new");
     match op {
-        Operation::Redo => redo(&mut store, &targets).expect("redo"),
-        Operation::RedoIfChange => redo_ifchange(&mut store, &targets).expect("redo-ifchange"),
-        Operation::RedoIfCreate => redo_ifcreate(&mut store, &targets).expect("redo-ifcreate"),
+        Operation::Redo => redo(&mut store, &targets).chain_err(|| "redo"),
+        Operation::RedoIfChange => {
+            redo_ifchange(&mut store, &targets).chain_err(|| "redo-ifchange")
+        }
+        Operation::RedoIfCreate => {
+            redo_ifcreate(&mut store, &targets).chain_err(|| "redo-ifcreate")
+        }
     }
 }
 
