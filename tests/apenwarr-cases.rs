@@ -5,6 +5,7 @@ extern crate walkdir;
 use tempdir::TempDir;
 use walkdir::WalkDir;
 use std::fs;
+use std::io::{self, BufRead};
 use std::path::Path;
 use std::process::Command;
 use std::path;
@@ -71,6 +72,21 @@ impl TestCase {
             Err(format!("Child command: {:?} exited: {:?}", cmd, child).into())
         }
     }
+}
+
+#[test]
+fn t_000_set_minus_e() {
+    let tc = TestCase::new("000-set-minus-e").expect("setup");
+    tc.run().expect("000-set-minus-e");
+
+    println!("Test case dir: {:?}", tc);
+    let log = io::BufReader::new(fs::File::open(tc.tmpdir.join("log")).expect("log file"));
+
+    let log_content = log.lines()
+        .map(|r| r.map_err(|e| e.into()))
+        .collect::<Result<Vec<_>>>()
+        .expect("log lines");
+    assert_eq!(log_content, vec!["ok"]);
 }
 
 #[test]
