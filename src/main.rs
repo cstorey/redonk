@@ -82,7 +82,7 @@ impl Item {
         path.set_file_name(fname);
 
         if exists(&path)? {
-            return Ok(Builder::specific(&path));
+            return Ok(Builder::specific(&path)?);
         };
 
         // try default.ext.do
@@ -97,7 +97,7 @@ impl Item {
         path.set_file_name(fname);
 
         if exists(&path)? {
-            return Ok(Builder::default(&path));
+            return Ok(Builder::default(&path)?);
         };
 
         return Err(format!("Could not find builder for {:?}", self).into());
@@ -135,15 +135,15 @@ struct Builder {
 }
 
 impl Builder {
-    fn specific(dofile: &Path) -> Builder {
+    fn specific(dofile: &Path) -> Result<Builder> {
         let default = false;
-        let dofile = dofile.to_owned();
-        Builder { dofile, default }
+        let dofile = dofile.canonicalize()?.to_owned();
+        Ok(Builder { dofile, default })
     }
-    fn default(dofile: &Path) -> Builder {
+    fn default(dofile: &Path) -> Result<Builder> {
         let default = true;
-        let dofile = dofile.to_owned();
-        Builder { dofile, default }
+        let dofile = dofile.canonicalize()?.to_owned();
+        Ok(Builder { dofile, default })
     }
 
     fn perform(&self, target: &Path) -> Result<()> {
@@ -153,18 +153,32 @@ impl Builder {
             tempfile::NamedTempFile::new_in(dir)?
         };
 
+        debug!(
+            "target path cmoponents: {:?}",
+            target.components().collect::<Vec<_>>()
+        );
+
         let mut cmd = Command::new("sh");
         {
-            let target_name = target.clone();
+            let target = Path::new(".").join(target);
+            let dir = target.parent()
+                // .filter(|p| !p.is_empty())
+                .unwrap_or(Path::new("."));
+            let target_name = target.file_name().chain_err(|| "Target has no file name?")?;
             let target_stem = if self.default {
-                target
+                Path::new(target_name)
                     .file_stem()
                     .chain_err(|| format!("{:?} has no file stem", &target))?
             } else {
-                target.as_ref()
+                target_name.as_ref()
             };
 
+            debug!(
+                "target_name: {:?}; stem: {:?}; cwd: {:?}",
+                target_name, target_stem, dir
+            );
             cmd.arg("-e")
+                .arg("-x")
                 .arg(&self.dofile)
                 // $1: Target name
                 .arg(target_name)
@@ -172,6 +186,7 @@ impl Builder {
                 .arg(&target_stem)
                 // $3: temporary output file.
                 .arg(tmpf.path());
+            cmd.current_dir(dir);
         }
 
         cmd.stdout(tmpf.reopen()?);
@@ -262,7 +277,12 @@ fn main() {
 
     debug!("✭: {:?}", env::args().collect::<Vec<_>>());
     let Opt { op, targets } = Opt::from_args();
-    debug!("op: {:?}; targets: {:?}", op, targets);
+    debug!(
+        "op: {:?}; targets: {:?}; in:{:?}",
+        op,
+        targets,
+        env::current_dir()
+    );
     let targets = targets.into_iter().map(PathBuf::from).collect::<Vec<_>>();
 
     let mut store = Store::new().expect("Store::new");

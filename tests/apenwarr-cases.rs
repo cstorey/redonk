@@ -112,6 +112,23 @@ fn t_101_atime() {
     tc.run().expect("101-atime");
 }
 
+#[test]
+fn t_102_empty() {
+    let tc = TestCase::new("102-empty").expect("setup");
+    tc.run().expect("102-empty");
+}
+
+#[test]
+fn t_103_unicode() {
+    let tc = TestCase::new("103-unicode").expect("setup");
+    tc.run().expect("103-unicode");
+}
+
+#[test]
+fn t_104_space() {
+    let tc = TestCase::new("104-space").expect("setup");
+    tc.run().expect("104-space");
+}
 
 #[test]
 fn t_110_compile() {
