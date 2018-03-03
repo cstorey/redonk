@@ -1,0 +1,94 @@
+#[macro_use]
+extern crate error_chain;
+extern crate tempdir;
+extern crate walkdir;
+use tempdir::TempDir;
+use walkdir::WalkDir;
+use std::fs;
+use std::path::Path;
+use std::process::Command;
+use std::path;
+
+error_chain! {
+    foreign_links {
+        Io(::std::io::Error);
+    }
+}
+
+fn copy_dir<P0: AsRef<Path>, P1: AsRef<Path>>(src: P0, dst: P1) -> Result<()> {
+    for e in WalkDir::new(&src) {
+        let e = e.chain_err(|| "walkdir")?;
+
+        let path = e.path()
+            .strip_prefix(&src)
+            .chain_err(|| "path from test case")?;
+        let dest = dst.as_ref().join(path);
+        // println!("{:?} → {:?}", e.path(), dest);
+
+        if e.file_type().is_dir() {
+            fs::create_dir(&dest).chain_err(|| "mkdir")?;
+        } else if e.file_type().is_file() {
+            fs::copy(&e.path(), &dest).chain_err(|| "copy file")?;
+        } else {
+            panic!("Unrecognised fs entity: {:?}: {:?}", e.path(), e.metadata())
+        }
+    }
+
+    Ok(())
+}
+
+#[derive(Debug)]
+struct TestCase {
+    tmpdir: path::PathBuf,
+}
+
+impl TestCase {
+    fn new(example: &str) -> Result<TestCase> {
+        let tmpdir = TempDir::new(example).chain_err(|| "TempDir::new")?;
+        let basedir = "t";
+        fs::remove_dir_all(&tmpdir.path()).chain_err(|| "cleanup")?;
+        copy_dir(&basedir, &tmpdir.path()).chain_err(|| "copy_dir")?;
+
+        Ok(TestCase {
+            tmpdir: tmpdir.into_path().join(example),
+        })
+    }
+
+    fn run(&self) -> Result<()> {
+        let mut cmd = Command::new("redonk");
+        cmd.arg("redo");
+        cmd.arg("all");
+        cmd.current_dir(&self.tmpdir);
+
+        let child = cmd.spawn()
+            .chain_err(|| format!("Command::spawn: {:?}", cmd))?
+            .wait()
+            .chain_err(|| format!("Child::wait: {:?}", cmd))?;
+
+        if child.success() {
+            Ok(())
+        } else {
+            Err(format!("Child command: {:?} exited: {:?}", cmd, child).into())
+        }
+    }
+}
+
+#[test]
+fn t_110_compile() {
+    let tc = TestCase::new("110-compile").expect("setup");
+    tc.run().expect("110-compile");
+
+    let hello = tc.tmpdir.join("hello");
+
+    println!("Test case dir: {:?}", tc);
+
+    let _ = fs::metadata(&hello)
+        .chain_err(|| format!("Built hello at {:?}", hello))
+        .expect("hello");
+    let res = Command::new(&hello)
+        .spawn()
+        .expect("spawn hello")
+        .wait()
+        .expect("wait hello");
+    assert!(res.success(), "Compiled hello ({:?}) ran okay", hello);
+}

@@ -8,6 +8,7 @@ extern crate serde_derive;
 extern crate serde_json;
 #[macro_use]
 extern crate structopt;
+extern crate tempfile;
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -17,6 +18,14 @@ use std::env;
 use std::ffi;
 
 use structopt::StructOpt;
+
+error_chain! {
+    foreign_links {
+        Io(::std::io::Error);
+        Json(serde_json::Error);
+        TempFile(tempfile::PersistError);
+    }
+}
 
 arg_enum! {
     #[derive(Debug)]
@@ -90,11 +99,11 @@ impl Item {
 
         return Err(format!("Could not find builder for {:?}", self).into());
     }
-}
-error_chain! {
-    foreign_links {
-        Io(::std::io::Error) #[cfg(unix)];
-        Json(serde_json::Error) #[cfg(unix)];
+
+    fn is_target(&self) -> Result<bool> {
+        let res = !exists(&self.name)?;
+        eprintln!("is_target: {:?} → {:?}", self, res);
+        Ok(res)
     }
 }
 
@@ -147,27 +156,55 @@ fn redo_ifchange(store: &mut Store, targets: &[PathBuf]) -> Result<()> {
             .read(&target)?
             .unwrap_or_else(|| Item::new_target(&target));
 
-        eprintln!("Target: {:?}: {:?}", target, it);
-        let dofile = it.find_builder()?;
-        eprintln!(
-            "Build: {:?} with {:?} in {:?}",
-            target,
-            dofile,
-            env::current_dir()
-        );
+        if it.is_target()? {
+            eprintln!("Target: {:?}: {:?}", target, it);
+            let dofile = it.find_builder()?;
+            eprintln!(
+                "Build: {:?} with {:?} in {:?}",
+                target,
+                dofile,
+                env::current_dir()
+            );
 
-        let mut cmd = Command::new("sh");
-        cmd.arg("-e").arg(&dofile);
-        eprintln!("Invoking: {:?}", cmd);
-        let res = cmd.spawn()?.wait()?;
+            let tmpf = {
+                let fname: &Path = it.name.as_ref();
+                let dir: &Path = fname.parent().unwrap_or(Path::new("."));
+                tempfile::NamedTempFile::new_in(dir)?
+            };
 
-        assert!(res.success(), "Dofile: {:?} exited with {:?}", dofile, res);
+            let mut cmd = Command::new("sh");
+            cmd.arg("-e")
+                .arg(&dofile)
+                // $1: Target name
+                .arg("???")
+                // $2: Basename of the target
+                .arg("???")
+                // $3: temporary output file.
+                .arg(tmpf.path());
+
+            cmd.stdout(tmpf.reopen()?);
+
+            eprintln!("⇒ {:?} ({:?})", dofile, cmd);
+            let res = cmd.spawn()?.wait()?;
+            eprintln!("⇐ {:?}", dofile);
+
+            assert!(res.success(), "Dofile: {:?} exited with {:?}", dofile, res);
+
+            eprintln!("{:?} → {:?}", tmpf.path(), it.name);
+            fs::rename(tmpf.path(), it.name).chain_err(|| "Persist output tempfile")?
+        }
     }
 
     Ok(())
 }
 
+fn redo_ifcreate(_store: &mut Store, targets: &[PathBuf]) -> Result<()> {
+    eprintln!("redo-ifcreate {:?} ignored", targets);
+    Ok(())
+}
+
 fn main() {
+    eprintln!("✭: {:?}", env::args().collect::<Vec<_>>());
     let Opt { op, targets } = Opt::from_args();
     eprintln!("op: {:?}; targets: {:?}", op, targets);
     let targets = targets.into_iter().map(PathBuf::from).collect::<Vec<_>>();
@@ -176,7 +213,7 @@ fn main() {
     match op {
         Operation::Redo => redo(&mut store, &targets).expect("redo"),
         Operation::RedoIfChange => redo_ifchange(&mut store, &targets).expect("redo-ifchange"),
-        other => unimplemented!("{:?}", other),
+        Operation::RedoIfCreate => redo_ifcreate(&mut store, &targets).expect("redo-ifcreate"),
     }
 }
 
