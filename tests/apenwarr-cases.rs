@@ -19,6 +19,16 @@ error_chain! {
     }
 }
 
+macro_rules! example {
+    ($func: ident, $name: expr) => {
+        #[test]
+        fn $func() {
+            let tc = TestCase::new($name).expect("setup");
+            tc.run().expect($name);
+        }
+    }
+}
+
 fn copy_dir<P0: AsRef<Path>, P1: AsRef<Path>>(src: P0, dst: P1) -> Result<()> {
     for e in WalkDir::new(&src) {
         let e = e.chain_err(|| "walkdir")?;
@@ -105,35 +115,11 @@ fn t_000_set_minus_e() {
     assert_eq!(log_content, vec!["ok"]);
 }
 
-#[test]
-fn t_100_args() {
-    let tc = TestCase::new("100-args").expect("setup");
-    tc.run().expect("100-args");
-}
-
-#[test]
-fn t_101_atime() {
-    let tc = TestCase::new("101-atime").expect("setup");
-    tc.run().expect("101-atime");
-}
-
-#[test]
-fn t_102_empty() {
-    let tc = TestCase::new("102-empty").expect("setup");
-    tc.run().expect("102-empty");
-}
-
-#[test]
-fn t_103_unicode() {
-    let tc = TestCase::new("103-unicode").expect("setup");
-    tc.run().expect("103-unicode");
-}
-
-#[test]
-fn t_104_space() {
-    let tc = TestCase::new("104-space").expect("setup");
-    tc.run().expect("104-space");
-}
+example!(t_100_args, "100-args");
+example!(t_101_atime, "101-atime");
+example!(t_102_empty, "102-empty");
+example!(t_103_unicode, "103-unicode");
+example!(t_104_space, "104-space");
 
 #[test]
 fn t_110_compile() {
@@ -154,3 +140,5 @@ fn t_110_compile() {
         .expect("wait hello");
     assert!(res.success(), "Compiled hello ({:?}) ran okay", hello);
 }
+
+example!(t_111_compile2, "111-compile2");
