@@ -9,10 +9,14 @@ use std::io::{self, BufRead};
 use std::path::Path;
 use std::process::Command;
 use std::path;
+use std::env;
+
+const EXE_DIR: &'static str = "target/debug";
 
 error_chain! {
     foreign_links {
         Io(::std::io::Error);
+        JoinPaths(env::JoinPathsError);
     }
 }
 
@@ -56,10 +60,17 @@ impl TestCase {
     }
 
     fn run(&self) -> Result<()> {
-        let mut cmd = Command::new("redonk");
+        let cwd = env::current_dir()?;
+        let exec_dir = cwd.join(EXE_DIR);
+        let curr_path = env::var_os("PATH").chain_err(|| "lookup current $PATH")?;
+        let mut paths = env::split_paths(&curr_path).collect::<Vec<_>>();
+        paths.insert(0, exec_dir.clone());
+
+        let mut cmd = Command::new(exec_dir.join("redonk"));
         cmd.arg("redo");
         cmd.arg("all");
         cmd.current_dir(&self.tmpdir);
+        cmd.env("PATH", env::join_paths(paths)?);
 
         let child = cmd.spawn()
             .chain_err(|| format!("Command::spawn: {:?}", cmd))?

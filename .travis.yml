@@ -26,7 +26,7 @@ env:
 script:
 - travis-cargo build -- $EXTRA
 # Our tests rely on having the compiled binaries on the $PATH.
-- PATH=$PWD/target/debug:$PATH travis-cargo test  -- $EXTRA
+- travis-cargo test  -- $EXTRA
 - travis-cargo --only stable doc
 after_success:
   # upload the documentation from the build with stable (automatically only actually
