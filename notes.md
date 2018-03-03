@@ -11,6 +11,7 @@ end procedure
 ```
 procedure redo-ifchange(args)
   create .redo database if it does not already exist
+
   for each argument i do
     if i.type does not exist then
       if i exists then
@@ -44,6 +45,7 @@ procedure redo-ifchange(args)
 
 ## Algorithm 4 redo, part 4: continuation of redo-ifchange procedure
 ```
+  -- At this point, we know it's a target.
   if i.prereqs exists then
     i.uptodate ← yes
     for each file j in i.prereqs do
