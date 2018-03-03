@@ -46,15 +46,16 @@ struct Opt {
     targets: Vec<String>,
 }
 
+#[derive(Debug)]
 struct FileSuffixTails<'a> {
-    input: &'a str,
+    input: Option<&'a str>,
     next_idx: Option<usize>,
 }
 
 impl<'a> FileSuffixTails<'a> {
     fn new(s: &'a str) -> FileSuffixTails<'a> {
         FileSuffixTails {
-            input: s,
+            input: Some(s),
             next_idx: Some(0),
         }
     }
@@ -63,15 +64,33 @@ impl<'a> FileSuffixTails<'a> {
 impl<'a> Iterator for FileSuffixTails<'a> {
     type Item = &'a str;
     fn next(&mut self) -> Option<Self::Item> {
-        if let Some(i) = self.next_idx {
-            let suffix = &self.input[i..];
+        trace!("Next: {:?}", self);
+        match self {
+            &mut FileSuffixTails {
+                input: Some(input),
+                next_idx: Some(i),
+            } => {
+                let current = &input[i..];
+                let suffix = &input[i + 1..];
 
-            self.input = &self.input[i + 1..];
-            self.next_idx = self.input.find('.');
+                self.input = Some(&suffix);
+                self.next_idx = suffix.find('.');
 
-            Some(suffix)
-        } else {
-            None
+                trace!("Done: {:?}", self);
+                Some(current)
+            }
+            &mut FileSuffixTails {
+                input: Some(_),
+                next_idx: None,
+            } => {
+                self.input = None;
+                trace!("Gasp: {:?}", self);
+                Some("")
+            }
+            _ => {
+                trace!("Finished: {:?}", self);
+                None
+            }
         }
     }
 }
@@ -110,7 +129,7 @@ impl Item {
             .to_owned();
 
         for candidate in FileSuffixTails::new(&fname) {
-            let is_default = candidate.chars().next() == Some('.');
+            let is_default = candidate.is_empty() || candidate.chars().next() == Some('.');
             let name = format!(
                 "{}{}.do",
                 if is_default { "default" } else { "" },
@@ -330,7 +349,7 @@ mod test {
     #[test]
     fn file_suffix_tails_should_return_pathname_tails() {
         let cs = FileSuffixTails::new("foo.bar.baz");
-        let options = vec!["foo.bar.baz", ".bar.baz", ".baz"];
+        let options = vec!["foo.bar.baz", ".bar.baz", ".baz", ""];
 
         assert_eq!(cs.collect::<Vec<_>>(), options);
     }
