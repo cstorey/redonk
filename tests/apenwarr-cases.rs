@@ -142,3 +142,20 @@ fn t_110_compile() {
 }
 
 example!(t_111_compile2, "111-compile2");
+
+// example!(t_120_defaults_flat, "120-defaults-flat");
+// example!(t_121_defaults_nested, "121-defaults-nested");
+// example!(t_130_mode, "130-mode");
+example!(t_140_shuffle, "140-shuffle");
+example!(t_141_keep_going, "141-keep-going");
+// example!(t_200_shell, "200-shell");
+// example!(t_201_fail, "201-fail");
+// example!(t_202_del, "202-del");
+example!(t_220_ifcreate, "220-ifcreate");
+// example!(t_250_makedir, "250-makedir");
+example!(t_350_deps, "350-deps");
+example!(t_550_chdir, "550-chdir");
+// example!(t_640_always, "640-always");
+// example!(t_660_stamp, "660-stamp");
+example!(t_950_curse, "950-curse");
+// example!(t_999_installer, "999-installer");
