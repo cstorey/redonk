@@ -47,6 +47,36 @@ struct Opt {
     targets: Vec<String>,
 }
 
+struct FileSuffixTails<'a> {
+    input: &'a str,
+    next_idx: Option<usize>,
+}
+
+impl<'a> FileSuffixTails<'a> {
+    fn new(s: &'a str) -> FileSuffixTails<'a> {
+        FileSuffixTails {
+            input: s,
+            next_idx: Some(0),
+        }
+    }
+}
+
+impl<'a> Iterator for FileSuffixTails<'a> {
+    type Item = &'a str;
+    fn next(&mut self) -> Option<Self::Item> {
+        if let Some(i) = self.next_idx {
+            let suffix = &self.input[i..];
+
+            self.input = &self.input[i + 1..];
+            self.next_idx = self.input.find('.');
+
+            Some(suffix)
+        } else {
+            None
+        }
+    }
+}
+
 #[derive(Deserialize, Debug)]
 struct Item {
     name: PathBuf,
@@ -73,33 +103,28 @@ impl Item {
     }
 
     fn find_builder(&self) -> Result<Builder> {
-        // Try target.ext.do
         let mut path = PathBuf::from(&self.name);
         let mut fname = path.file_name()
             .chain_err(|| format!("Builder file name for {:?}", self))?
-            .to_os_string();
-        fname.push(".do");
-        path.set_file_name(fname);
+            .to_str()
+            .chain_err(|| format!("Could not decode filename as utf-8: {:?}", path))?
+            .to_owned();
 
-        if exists(&path)? {
-            return Ok(Builder::specific(&path)?);
-        };
+        for candidate in FileSuffixTails::new(&fname) {
+            let is_default = candidate.chars().next() == Some('.');
+            let name = format!(
+                "{}{}.do",
+                if is_default { "default" } else { "" },
+                candidate
+            );
 
-        // try default.ext.do
-        let mut path = PathBuf::from(&self.name);
-        // This may be wrong for compounded extensions like foo.tar.gz
-        let mut fname = ffi::OsString::from("default");
-        if let Some(ext) = path.extension() {
-            fname.push(".");
-            fname.push(ext);
+            path.set_file_name(name);
+            debug!("Considering path: {:?}", path);
+
+            if exists(&path)? {
+                return Ok(Builder::new(&path, is_default)?);
+            };
         }
-        fname.push(".do");
-        path.set_file_name(fname);
-
-        if exists(&path)? {
-            return Ok(Builder::default(&path)?);
-        };
-
         return Err(format!("Could not find builder for {:?}", self).into());
     }
 
@@ -192,6 +217,7 @@ impl Builder {
                 target_name, target_stem, dir
             );
             cmd.arg("-e")
+                .arg("-x")
                 .arg(&self.dofile)
                 // $1: Target name
                 .arg(target_name)
@@ -307,3 +333,15 @@ fn main() {
 }
 
 // fn main() { panic!() }
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    #[test]
+    fn file_suffix_tails_should_return_pathname_tails() {
+        let cs = FileSuffixTails::new("foo.bar.baz");
+        let options = vec!["foo.bar.baz", ".bar.baz", ".baz"];
+
+        assert_eq!(cs.collect::<Vec<_>>(), options);
+    }
+}
