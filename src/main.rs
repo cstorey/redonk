@@ -175,15 +175,20 @@ fn redo_ifchange(store: &mut Store, targets: &[PathBuf]) -> Result<()> {
                 tempfile::NamedTempFile::new_in(dir)?
             };
 
+
             let mut cmd = Command::new("sh");
-            cmd.arg("-e")
-                .arg(&dofile)
-                // $1: Target name
-                .arg("???")
-                // $2: Basename of the target
-                .arg("???")
-                // $3: temporary output file.
-                .arg(tmpf.path());
+            {
+                let target_name = it.name.clone();
+                let target_stem = it.name.file_stem().chain_err(|| format!("{:?} has no file stem", it))?;
+                cmd.arg("-ex")
+                    .arg(&dofile)
+                    // $1: Target name
+                    .arg(target_name)
+                    // $2: Basename of the target
+                    .arg(&target_stem)
+                    // $3: temporary output file.
+                    .arg(tmpf.path());
+            }
 
             cmd.stdout(tmpf.reopen()?);
 
