@@ -6,9 +6,8 @@ use tempdir::TempDir;
 use walkdir::WalkDir;
 use std::fs;
 use std::io::{self, BufRead};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::path;
 use std::env;
 
 const EXE_DIR: &'static str = "target/debug";
@@ -44,7 +43,8 @@ fn copy_dir<P0: AsRef<Path>, P1: AsRef<Path>>(src: P0, dst: P1) -> Result<()> {
 
 #[derive(Debug)]
 struct TestCase {
-    tmpdir: path::PathBuf,
+    tmpdir: PathBuf,
+    example: String,
 }
 
 impl TestCase {
@@ -55,7 +55,8 @@ impl TestCase {
         copy_dir(&basedir, &tmpdir.path()).chain_err(|| "copy_dir")?;
 
         Ok(TestCase {
-            tmpdir: tmpdir.into_path().join(example),
+            tmpdir: tmpdir.into_path(),
+            example: example.to_owned(),
         })
     }
 
@@ -68,7 +69,7 @@ impl TestCase {
 
         let mut cmd = Command::new(exec_dir.join("redonk"));
         cmd.arg("redo");
-        cmd.arg("all");
+        cmd.arg(PathBuf::from(&self.example).join("all"));
         cmd.current_dir(&self.tmpdir);
         cmd.env("PATH", env::join_paths(paths)?);
 
@@ -83,6 +84,10 @@ impl TestCase {
             Err(format!("Child command: {:?} exited: {:?}", cmd, child).into())
         }
     }
+
+    fn example_dir(&self) -> PathBuf {
+        self.tmpdir.join(&self.example)
+    }
 }
 
 #[test]
@@ -91,7 +96,7 @@ fn t_000_set_minus_e() {
     tc.run().expect("000-set-minus-e");
 
     println!("Test case dir: {:?}", tc);
-    let log = io::BufReader::new(fs::File::open(tc.tmpdir.join("log")).expect("log file"));
+    let log = io::BufReader::new(fs::File::open(tc.example_dir().join("log")).expect("log file"));
 
     let log_content = log.lines()
         .map(|r| r.map_err(|e| e.into()))
@@ -135,7 +140,7 @@ fn t_110_compile() {
     let tc = TestCase::new("110-compile").expect("setup");
     tc.run().expect("110-compile");
 
-    let hello = tc.tmpdir.join("hello");
+    let hello = tc.example_dir().join("hello");
 
     println!("Test case dir: {:?}", tc);
 

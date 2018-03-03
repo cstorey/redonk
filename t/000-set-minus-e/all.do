@@ -1,4 +1,4 @@
 rm -f log
-redo fatal > /dev/null 2>&1 || true
+(redo fatal  || true) > /dev/null 2>&1
 
 [ "$(cat log)" = "ok" ] || exit 5

@@ -119,7 +119,7 @@ impl Item {
                 env::current_dir()
             );
 
-            dofile.perform(&self.name)?;
+            dofile.perform(&self.name).chain_err(|| "perform")?;
         } else {
             debug!("Presumed source file: {:?}", self);
         }
@@ -137,19 +137,33 @@ struct Builder {
 impl Builder {
     fn specific(dofile: &Path) -> Result<Builder> {
         let default = false;
-        let dofile = dofile.canonicalize()?.to_owned();
-        Ok(Builder { dofile, default })
+        Self::new(dofile, default)
     }
     fn default(dofile: &Path) -> Result<Builder> {
         let default = true;
-        let dofile = dofile.canonicalize()?.to_owned();
+        Self::new(dofile, default)
+    }
+
+    fn new(dofile: &Path, default: bool) -> Result<Builder> {
+        let dofile = dofile
+            .canonicalize()
+            .chain_err(|| format!("Canonicalize in Builder::new({:?}, {:?})", dofile, default))?
+            .to_owned();
         Ok(Builder { dofile, default })
     }
 
     fn perform(&self, target: &Path) -> Result<()> {
         let tmpf = {
             let fname: &Path = target.as_ref();
-            let dir: &Path = fname.parent().unwrap_or(Path::new("."));
+            let parent = fname
+                .parent()
+                .into_iter()
+                .filter(|s| !s.as_os_str().is_empty())
+                .next()
+                .unwrap_or(Path::new("."));
+            let dir = parent
+                .canonicalize()
+                .chain_err(|| format!("perform: canon parent: {:?}", parent))?;
             tempfile::NamedTempFile::new_in(dir)?
         };
 
