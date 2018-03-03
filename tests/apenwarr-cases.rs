@@ -90,6 +90,13 @@ fn t_000_set_minus_e() {
 }
 
 #[test]
+#[should_panic(expected = "Child command:")]
+fn t_100_args() {
+    let tc = TestCase::new("100-args").expect("setup");
+    tc.run().expect("100-args");
+}
+
+#[test]
 fn t_110_compile() {
     let tc = TestCase::new("110-compile").expect("setup");
     tc.run().expect("110-compile");
