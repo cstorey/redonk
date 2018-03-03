@@ -234,7 +234,8 @@ impl Builder {
                 // $2: Basename of the target
                 .arg(&target_stem)
                 // $3: temporary output file.
-                .arg(tmpf.path());
+                .arg(tmpf.path().file_name()
+                        .chain_err(|| format!("Filename of temporary file: {:?}", tmpf))?);
             cmd.current_dir(dir);
         }
 
