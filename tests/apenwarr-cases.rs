@@ -21,12 +21,16 @@ error_chain! {
 
 macro_rules! example {
     ($func: ident, $name: expr) => {
+        example!($func, $name, );
+    };
+    ($func: ident, $name: expr, $( #[$meta:meta] )*) => {
         #[test]
+        $(#[$meta])*
         fn $func() {
             let tc = TestCase::new($name).expect("setup");
             tc.run().expect($name);
         }
-    }
+    };
 }
 
 fn copy_dir<P0: AsRef<Path>, P1: AsRef<Path>>(src: P0, dst: P1) -> Result<()> {
@@ -144,7 +148,8 @@ fn t_110_compile() {
 example!(t_111_compile2, "111-compile2");
 
 example!(t_120_defaults_flat, "120-defaults-flat");
-// example!(t_121_defaults_nested, "121-defaults-nested");
+example!(t_121_defaults_nested, "121-defaults-nested",
+    #[should_panic]);
 // example!(t_130_mode, "130-mode");
 example!(t_140_shuffle, "140-shuffle");
 example!(t_141_keep_going, "141-keep-going");
