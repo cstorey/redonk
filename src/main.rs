@@ -192,7 +192,6 @@ impl Builder {
                 target_name, target_stem, dir
             );
             cmd.arg("-e")
-                .arg("-x")
                 .arg(&self.dofile)
                 // $1: Target name
                 .arg(target_name)
