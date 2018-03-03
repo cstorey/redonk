@@ -128,20 +128,22 @@ impl Item {
             .chain_err(|| format!("Could not decode filename as utf-8: {:?}", path))?
             .to_owned();
 
-        for candidate in FileSuffixTails::new(&fname) {
-            let is_default = candidate.is_empty() || candidate.chars().next() == Some('.');
-            let name = format!(
-                "{}{}.do",
-                if is_default { "default" } else { "" },
-                candidate
-            );
+        while path.pop() {
+            for suffix in FileSuffixTails::new(&fname) {
+                let is_default = suffix.is_empty() || suffix.chars().next() == Some('.');
+                let name = format!(
+                        "{}{}.do",
+                        if is_default { "default" } else { "" },
+                        suffix
+                        );
 
-            path.set_file_name(name);
-            debug!("Considering path: {:?}", path);
+                let candidate = path.join(name);
+                debug!("Considering path: {:?}", candidate);
 
-            if exists(&path)? {
-                return Ok(Builder::new(&path, is_default)?);
-            };
+                if exists(&candidate)? {
+                    return Ok(Builder::new(&candidate, is_default)?);
+                };
+            }
         }
         return Err(format!("Could not find builder for {:?}", self).into());
     }
@@ -226,7 +228,7 @@ impl Builder {
                 target_name, target_stem, dir
             );
             cmd.arg("-e")
-                .arg("-x")
+                // .arg("-x")
                 .arg(&self.dofile)
                 // $1: Target name
                 .arg(target_name)
