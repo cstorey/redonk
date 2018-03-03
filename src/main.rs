@@ -72,7 +72,7 @@ impl Item {
         }
     }
 
-    fn find_builder(&self) -> Result<PathBuf> {
+    fn find_builder(&self) -> Result<Builder> {
         // Try target.ext.do
         let mut path = PathBuf::from(&self.name);
         let mut fname = path.file_name()
@@ -82,7 +82,7 @@ impl Item {
         path.set_file_name(fname);
 
         if exists(&path)? {
-            return Ok(path);
+            return Ok(Builder::specific(&path));
         };
 
         // try default.ext.do
@@ -97,7 +97,7 @@ impl Item {
         path.set_file_name(fname);
 
         if exists(&path)? {
-            return Ok(path);
+            return Ok(Builder::default(&path));
         };
 
         return Err(format!("Could not find builder for {:?}", self).into());
@@ -107,6 +107,93 @@ impl Item {
         let res = !exists(&self.name)?;
         debug!("is_target: {:?} → {:?}", self, res);
         Ok(res)
+    }
+    fn redo(&self) -> Result<()> {
+        if self.is_target()? {
+            debug!("Target: {:?}", self);
+            let dofile = self.find_builder()?;
+            debug!(
+                "Build: {:?} with {:?} in {:?}",
+                self,
+                dofile,
+                env::current_dir()
+            );
+
+            dofile.perform(&self.name)?;
+        } else {
+            debug!("Presumed source file: {:?}", self);
+        }
+
+        Ok(())
+    }
+}
+
+#[derive(Debug)]
+struct Builder {
+    dofile: PathBuf,
+    default: bool,
+}
+
+impl Builder {
+    fn specific(dofile: &Path) -> Builder {
+        let default = false;
+        let dofile = dofile.to_owned();
+        Builder { dofile, default }
+    }
+    fn default(dofile: &Path) -> Builder {
+        let default = true;
+        let dofile = dofile.to_owned();
+        Builder { dofile, default }
+    }
+
+    fn perform(&self, target: &Path) -> Result<()> {
+        let tmpf = {
+            let fname: &Path = target.as_ref();
+            let dir: &Path = fname.parent().unwrap_or(Path::new("."));
+            tempfile::NamedTempFile::new_in(dir)?
+        };
+
+        let mut cmd = Command::new("sh");
+        {
+            let target_name = target.clone();
+            let target_stem = if self.default {
+                target
+                    .file_stem()
+                    .chain_err(|| format!("{:?} has no file stem", &target))?
+            } else {
+                target.as_ref()
+            };
+
+            cmd.arg("-e")
+                .arg(&self.dofile)
+                // $1: Target name
+                .arg(target_name)
+                // $2: Basename of the target
+                .arg(&target_stem)
+                // $3: temporary output file.
+                .arg(tmpf.path());
+        }
+
+        cmd.stdout(tmpf.reopen()?);
+
+        // Emulate apenwarr's minimal/do
+        cmd.env("DO_BUILT", "t");
+
+        debug!("⇒ {:?} ({:?})", self.dofile, cmd);
+        let res = cmd.spawn()?.wait()?;
+        debug!("⇐ {:?}", self.dofile);
+
+        assert!(
+            res.success(),
+            "Dofile: {:?} exited with code:{:?}",
+            self.dofile,
+            res.code()
+        );
+
+        debug!("{:?} → {:?}", tmpf.path(), target);
+        fs::rename(tmpf.path(), &target).chain_err(|| "Persist output tempfile")?;
+
+        Ok(())
     }
 }
 
@@ -159,48 +246,7 @@ fn redo_ifchange(store: &mut Store, targets: &[PathBuf]) -> Result<()> {
             .read(&target)?
             .unwrap_or_else(|| Item::new_target(&target));
 
-        if it.is_target()? {
-            debug!("Target: {:?}: {:?}", target, it);
-            let dofile = it.find_builder()?;
-            debug!(
-                "Build: {:?} with {:?} in {:?}",
-                target,
-                dofile,
-                env::current_dir()
-            );
-
-            let tmpf = {
-                let fname: &Path = it.name.as_ref();
-                let dir: &Path = fname.parent().unwrap_or(Path::new("."));
-                tempfile::NamedTempFile::new_in(dir)?
-            };
-
-
-            let mut cmd = Command::new("sh");
-            {
-                let target_name = it.name.clone();
-                let target_stem = it.name.file_stem().chain_err(|| format!("{:?} has no file stem", it))?;
-                cmd.arg("-ex")
-                    .arg(&dofile)
-                    // $1: Target name
-                    .arg(target_name)
-                    // $2: Basename of the target
-                    .arg(&target_stem)
-                    // $3: temporary output file.
-                    .arg(tmpf.path());
-            }
-
-            cmd.stdout(tmpf.reopen()?);
-
-            debug!("⇒ {:?} ({:?})", dofile, cmd);
-            let res = cmd.spawn()?.wait()?;
-            debug!("⇐ {:?}", dofile);
-
-            assert!(res.success(), "Dofile: {:?} exited with {:?}", dofile, res);
-
-            debug!("{:?} → {:?}", tmpf.path(), it.name);
-            fs::rename(tmpf.path(), it.name).chain_err(|| "Persist output tempfile")?
-        }
+        it.redo()?;
     }
 
     Ok(())

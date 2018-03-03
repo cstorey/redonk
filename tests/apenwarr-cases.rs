@@ -101,7 +101,6 @@ fn t_000_set_minus_e() {
 }
 
 #[test]
-#[should_panic(expected = "Child command:")]
 fn t_100_args() {
     let tc = TestCase::new("100-args").expect("setup");
     tc.run().expect("100-args");
