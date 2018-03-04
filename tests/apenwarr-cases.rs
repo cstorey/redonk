@@ -81,11 +81,19 @@ impl TestCase {
         let mut paths = env::split_paths(&curr_path).collect::<Vec<_>>();
         paths.insert(0, exec_dir.clone());
 
+        let stdout_name = PathBuf::from(format!("target/{}.out.txt", self.example));
+        let stderr_name = PathBuf::from(format!("target/{}.err.txt", self.example));
+
         let mut cmd = Command::new(exec_dir.join("redonk"));
         cmd.arg("redo");
         cmd.arg(PathBuf::from(&self.example).join("all"));
         cmd.current_dir(&self.tmpdir);
         cmd.env("PATH", env::join_paths(paths)?);
+        cmd.stdout(fs::File::create(&stdout_name)
+            .chain_err(|| stdout_name.to_string_lossy().into_owned())?);
+        cmd.stderr(fs::File::create(&stderr_name)
+            .chain_err(|| stderr_name.to_string_lossy().into_owned())?);
+        println!("Child stdout: {:?}; stderr: {:?}", stdout_name, stderr_name);
 
         let child = cmd.spawn()
             .chain_err(|| format!("Command::spawn: {:?}", cmd))?
@@ -137,12 +145,12 @@ fn t_110_compile() {
     let _ = fs::metadata(&hello)
         .chain_err(|| format!("Built hello at {:?}", hello))
         .expect("hello");
-    let res = Command::new(&hello)
-        .spawn()
-        .expect("spawn hello")
-        .wait()
-        .expect("wait hello");
-    assert!(res.success(), "Compiled hello ({:?}) ran okay", hello);
+    let out = Command::new(&hello).output().expect("spawn hello");
+    assert!(
+        out.status.success(),
+        "Compiled hello ({:?}) ran okay",
+        hello
+    );
 }
 
 example!(t_111_compile2, "111-compile2");
