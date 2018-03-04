@@ -250,6 +250,7 @@ impl Builder {
                 .filter(|s| !s.as_os_str().is_empty())
                 .next()
                 .unwrap_or(Path::new("."));
+
             let dir = parent
                 .canonicalize()
                 .chain_err(|| format!("perform: canon parent: {:?}", parent))?;
@@ -263,11 +264,50 @@ impl Builder {
 
         let mut cmd = Command::new("sh");
         {
-            let target = Path::new(".").join(target);
-            let target_dir = target.parent()
+            let target_abs = Path::new(".").canonicalize()?.join(target);
+            let builder_abs = self.dofile.canonicalize()?;
+
+            debug!("Target : {:?}", target_abs.components().collect::<Vec<_>>());
+            debug!(
+                "Builder: {:?}",
+                builder_abs.components().collect::<Vec<_>>()
+            );
+
+            // It _looks_ like the .do files need to be run from their current
+            // working directory., so things like `./CC foo bar` work. In
+            // other words, this is utterly wrong.
+            //
+            // Hence; we need to derive the target path relative to the build
+            // file, and pass _that_ in as the various target parameters.
+            //
+            // On the other hand, we know that the build file will _always_ be
+            // in an ancestor directory of the target.
+            //
+            // https://github.com/dmlloyd/openjdk/blob/63e2f67762f09aa87cac5b4bbda7a285fde9edbe/src/java.base/unix/classes/sun/nio/fs/UnixPath.java#L422-L507
+            // TODO: Finish off a port of the relativize method.
+            let common_prefix = target_abs
+                .components()
+                .zip(builder_abs.components())
+                .take_while(|&(tc, bc)| tc == bc)
+                .map(|(tc, _)| tc.as_os_str())
+                .collect::<PathBuf>();
+
+            debug!("Common prefix: {:?}", common_prefix);
+            debug!(
+                "Target: {:?}; builder: {:?}",
+                target_abs.strip_prefix(&common_prefix),
+                builder_abs.strip_prefix(&common_prefix)
+            );
+
+            let target_dir = target_abs.parent()
                 // .filter(|p| !p.is_empty())
                 .unwrap_or(Path::new("."));
-            let target_name = target.file_name().chain_err(|| "Target has no file name?")?;
+            let _builder_dir = builder_abs.parent()
+                // .filter(|p| !p.is_empty())
+                .unwrap_or(Path::new("."));
+            let target_name = target_abs
+                .file_name()
+                .chain_err(|| "Target has no file name?")?;
             let target_base = if self.default {
                 self.base_of(target_name)?
             } else {
@@ -278,6 +318,7 @@ impl Builder {
                 "target_name: {:?}; base: {:?}; cwd: {:?}",
                 target_name, target_base, target_dir
             );
+
             cmd.arg("-e")
                 // .arg("-x")
                 .arg(&self.dofile)
@@ -288,9 +329,6 @@ impl Builder {
                 // $3: temporary output file.
                 .arg(tmpf.path().file_name()
                         .chain_err(|| format!("Filename of temporary file: {:?}", tmpf))?);
-            // It _looks_ like the .do files need to be run from their
-            // current working directory., so things like `./CC foo bar` work.
-            // In other words, this is utterly wrong.
             cmd.current_dir(target_dir);
         }
 
