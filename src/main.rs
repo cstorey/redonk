@@ -455,6 +455,38 @@ fn run(op: Operation, targets: &[String]) -> Result<()> {
 
 // fn main() { panic!() }
 
+trait PathExt {
+    fn relative_to<P: AsRef<Path>>(&self, base: P) -> PathBuf;
+}
+
+impl<P: AsRef<Path>> PathExt for P {
+    fn relative_to<P2: AsRef<Path>>(&self, reference: P2) -> PathBuf {
+        // unimplemented!("{:?} relative_to: {:?}", self.as_ref(), base.as_ref());
+        let mut base = self.as_ref().components().peekable();
+        let mut rf = reference.as_ref().components().peekable();
+
+        while base.peek() == rf.peek() {
+            let _ = base.next();
+            let _ = rf.next();
+        }
+
+        let remaining_base = base.map(|c| c.as_os_str()).collect::<PathBuf>();
+        // let remaining_ref = rf.map(|c| c.as_os_str()).collect::<PathBuf>();
+        // println!("base: {:?}; ref: {:?}", remaining_base, remaining_ref);
+
+        let mut prefix = PathBuf::new();
+        for component in rf {
+            println!("Ref component: {:?}", component);
+            prefix.push("..");
+        }
+
+        // The last item here corresponds to the filename
+        prefix.pop();
+
+        return prefix.join(remaining_base);
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -464,5 +496,41 @@ mod test {
         let options = vec!["foo.bar.baz", ".bar.baz", ".baz", ""];
 
         assert_eq!(cs.collect::<Vec<_>>(), options);
+    }
+
+    #[test]
+    fn path_relativize_should_handle_items_in_same_directory() {
+        assert_eq!(Path::new("hello").relative_to(&Path::new("world")),
+                Path::new("hello"));
+    }
+
+    #[test]
+    fn path_relativize_should_handle_subject_in_child_directory() {
+        assert_eq!(Path::new("hello/world").relative_to(&Path::new("me")),
+                Path::new("hello/world"));
+    }
+
+    #[test]
+    fn path_relativize_should_handle_base_in_child_directory() {
+        assert_eq!(Path::new("hello").relative_to(&Path::new("world/me")),
+                Path::new("../hello"));
+    }
+
+    #[test]
+    fn path_relativize_should_handle_items_in_same_directory_with_common_prefix() {
+        assert_eq!(Path::new("a/hello").relative_to(&Path::new("a/world")),
+                Path::new("hello"));
+    }
+
+    #[test]
+    fn path_relativize_should_handle_subject_in_child_directory_with_common_prefix() {
+        assert_eq!(Path::new("a/hello/world").relative_to(&Path::new("a/me")),
+                Path::new("hello/world"));
+    }
+
+    #[test]
+    fn path_relativize_should_handle_base_in_child_directory_with_common_prefix() {
+        assert_eq!(Path::new("the/hello").relative_to(&Path::new("the/world/me")),
+                Path::new("../hello"));
     }
 }
