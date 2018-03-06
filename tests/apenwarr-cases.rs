@@ -157,6 +157,8 @@ example!(t_111_compile2, "111-compile2");
 
 example!(t_120_defaults_flat, "120-defaults-flat");
 example!(t_121_defaults_nested, "121-defaults-nested");
+// At present, the tempfile library we use opens files with a mask of 0600,
+// which in itself is fine, but inconvenient without messing with umasks and the like.
 // example!(t_130_mode, "130-mode");
 example!(t_140_shuffle, "140-shuffle");
 example!(t_141_keep_going, "141-keep-going");
