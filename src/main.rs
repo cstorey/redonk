@@ -206,8 +206,8 @@ impl Builder {
         Ok(Builder { dofile, default })
     }
 
-    fn base_of<'a>(&self, target_name: &'a OsStr) -> Result<&'a OsStr> {
-        let target_fname = Path::new(target_name)
+    fn base_of<'a>(&self, target_name: &'a Path) -> Result<&'a OsStr> {
+        let target_fname = target_name
             .file_name()
             .chain_err(|| format!("Target {:?} has no file name?", &target_name))?
             .to_str()
@@ -275,10 +275,10 @@ impl Builder {
             let target_abs = Path::new(".").canonicalize()?.join(target);
             let builder_abs = self.dofile.canonicalize()?;
 
-            debug!("Target : {:?}", target_abs.components().collect::<Vec<_>>());
+            debug!("Target : {:?}", target_abs /* .components().collect::<Vec<_>>()*/);
             debug!(
                 "Builder: {:?}",
-                builder_abs.components().collect::<Vec<_>>()
+                builder_abs/*.components().collect::<Vec<_>>()  */
             );
 
             // It _looks_ like the .do files need to be run from their current
@@ -310,14 +310,13 @@ impl Builder {
             let target_dir = target_abs.parent()
                 // .filter(|p| !p.is_empty())
                 .unwrap_or(Path::new("."));
-            let _builder_dir = builder_abs.parent()
+            let builder_dir = builder_abs.parent()
                 // .filter(|p| !p.is_empty())
                 .unwrap_or(Path::new("."));
-            let target_name = target_abs
-                .file_name()
-                .chain_err(|| "Target has no file name?")?;
+            let target_name = target_abs.relative_to_dir(&builder_dir);
+            warn!("{:?} relative_to_dir {:?} => {:?}", target_abs, builder_dir, target_name);
             let target_base = if self.default {
-                self.base_of(target_name)?
+                self.base_of(&target_name)?
             } else {
                 target_name.as_ref()
             };
@@ -331,13 +330,13 @@ impl Builder {
                 // .arg("-x")
                 .arg(&self.dofile)
                 // $1: Target name
-                .arg(target_name)
+                .arg(&target_name)
                 // $2: Basename of the target
                 .arg(&target_base)
                 // $3: temporary output file.
                 .arg(tmpf.path().file_name()
                         .chain_err(|| format!("Filename of temporary file: {:?}", tmpf))?);
-            cmd.current_dir(target_dir);
+            cmd.current_dir(builder_dir);
         }
 
         cmd.stdout(tmpf.reopen()?);
@@ -580,6 +579,16 @@ mod test {
         );
     }
 
+    #[test]
+    #[ignore]
+    fn path_relativize_should_handle_child_then_parent() {
+        // builder: ./t/121-defaults-nested/a/default.x.y.z.do
+        // Target: ...
+        assert_eq!(
+            Path::new("../file.x.y.z").relative_to_dir(&Path::new("b/")),
+            Path::new("file.x.y.z")
+        );
+    }
 }
 
 #[cfg(all(test, feature = "impl_trait"))]
