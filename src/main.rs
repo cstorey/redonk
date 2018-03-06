@@ -171,7 +171,7 @@ impl Item {
         debug!("is_target: {:?} → {:?}", self, res);
         Ok(res)
     }
-    fn redo(&self) -> Result<()> {
+    fn redo(&self, xtrace: bool) -> Result<()> {
         if self.is_target()? {
             info!("Target: {:?}", self);
             let dofile = self.find_builder()?;
@@ -182,7 +182,7 @@ impl Item {
                 env::current_dir()
             );
 
-            dofile.perform(&self.name).chain_err(|| "perform")?;
+            dofile.perform(&self.name, xtrace).chain_err(|| "perform")?;
         } else {
             debug!("Presumed source file: {:?}", self);
         }
@@ -260,7 +260,7 @@ impl Builder {
         Ok(OsStr::new(target_base))
     }
 
-    fn perform(&self, target: &Path) -> Result<()> {
+    fn perform(&self, target: &Path, xtrace: bool) -> Result<()> {
         let tmpf = {
             let fname: &Path = target.as_ref();
             let parent = fname
@@ -337,9 +337,9 @@ impl Builder {
                 target_name, target_base, target_dir
             );
 
-            cmd.arg("-e")
-                // .arg("-x")
-                .arg(&self.dofile)
+            cmd.arg("-e");
+            if xtrace { cmd.arg("-x"); };
+            cmd.arg(&self.dofile)
                 // $1: Target name
                 .arg(&target_name)
                 // $2: Basename of the target
@@ -404,9 +404,9 @@ impl Store {
     }
 }
 
-fn redo(store: &mut Store, targets: &[PathBuf]) -> Result<()> {
+fn redo(store: &mut Store, targets: &[PathBuf], xtrace: bool) -> Result<()> {
     // Mark targets as non-up to date
-    redo_ifchange(store, targets)
+    redo_ifchange(store, targets, xtrace)
 }
 
 // Sack off the main algorithm bits for now; just implement the minimal redo
@@ -415,20 +415,20 @@ fn redo(store: &mut Store, targets: &[PathBuf]) -> Result<()> {
 //
 // Then extend with redo on mtime change, and redo on mtime+content change.
 //
-fn redo_ifchange(store: &mut Store, targets: &[PathBuf]) -> Result<()> {
+fn redo_ifchange(store: &mut Store, targets: &[PathBuf], xtrace: bool) -> Result<()> {
     // Start off just by rebuilding, like, everything.
     for target in targets {
         let it = store
             .read(&target)?
             .unwrap_or_else(|| Item::new_target(&target));
 
-        it.redo()?;
+        it.redo(xtrace)?;
     }
 
     Ok(())
 }
 
-fn redo_ifcreate(_store: &mut Store, targets: &[PathBuf]) -> Result<()> {
+fn redo_ifcreate(_store: &mut Store, targets: &[PathBuf], _xtrace: bool) -> Result<()> {
     debug!("redo-ifcreate {:?} ignored", targets);
     Ok(())
 }
@@ -439,7 +439,9 @@ fn main() {
     debug!("✭: {:?}", env::args().collect::<Vec<_>>());
     let Opt { op, targets } = Opt::from_args();
 
-    let code = match run(op, &targets) {
+    let xtrace = env::var_os("REDONK_XTRACE").is_some();
+
+    let code = match run(op, &targets, xtrace) {
         Ok(_) => EXIT_SUCCESS,
         Err(e) => {
             eprintln!("Could not build targets: {:?}\n{:?}", targets, e);
@@ -449,7 +451,7 @@ fn main() {
     process::exit(code);
 }
 
-fn run(op: Operation, targets: &[String]) -> Result<()> {
+fn run(op: Operation, targets: &[String], xtrace: bool) -> Result<()> {
     debug!(
         "op: {:?}; targets: {:?}; in:{:?}",
         op,
@@ -460,12 +462,12 @@ fn run(op: Operation, targets: &[String]) -> Result<()> {
 
     let mut store = Store::new().expect("Store::new");
     match op {
-        Operation::Redo => redo(&mut store, &targets).chain_err(|| "redo"),
+        Operation::Redo => redo(&mut store, &targets, xtrace).chain_err(|| "redo"),
         Operation::RedoIfChange => {
-            redo_ifchange(&mut store, &targets).chain_err(|| "redo-ifchange")
+            redo_ifchange(&mut store, &targets, xtrace).chain_err(|| "redo-ifchange")
         }
         Operation::RedoIfCreate => {
-            redo_ifcreate(&mut store, &targets).chain_err(|| "redo-ifcreate")
+            redo_ifcreate(&mut store, &targets, xtrace).chain_err(|| "redo-ifcreate")
         }
     }
 }
