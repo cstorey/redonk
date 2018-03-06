@@ -1,3 +1,5 @@
+#![cfg_attr(all(test, feature = "impl_trait"), feature(conservative_impl_trait))]
+
 #[macro_use]
 extern crate clap;
 extern crate env_logger;
@@ -13,12 +15,18 @@ extern crate serde_json;
 extern crate structopt;
 extern crate tempfile;
 
-use std::path::{Path, PathBuf};
+#[cfg(all(test, feature = "impl_trait"))]
+extern crate suppositions;
+#[cfg(all(test, feature = "impl_trait"))]
+extern crate tempdir;
+
+use std::path::{Component, Path, PathBuf};
 use std::process::{self, Command};
 use std::fs;
 use std::io;
 use std::env;
 use std::ffi::OsStr;
+use std::collections::VecDeque;
 
 use structopt::StructOpt;
 
@@ -283,7 +291,7 @@ impl Builder {
             // On the other hand, we know that the build file will _always_ be
             // in an ancestor directory of the target.
             //
-            // https://github.com/dmlloyd/openjdk/blob/63e2f67762f09aa87cac5b4bbda7a285fde9edbe/src/java.base/unix/classes/sun/nio/fs/UnixPath.java#L422-L507
+            // https://github.com/dmlloyd/openjdk/blob/63e2f67762f09aa87cac5b4bbda7a285fde9edbe/src/java.base/unix/classes/sun/nio/fs/unixpath.java#l422-l507
             // TODO: Finish off a port of the relativize method.
             let common_prefix = target_abs
                 .components()
@@ -456,34 +464,52 @@ fn run(op: Operation, targets: &[String]) -> Result<()> {
 // fn main() { panic!() }
 
 trait PathExt {
-    fn relative_to<P: AsRef<Path>>(&self, base: P) -> PathBuf;
+    // This is used to figure out what path a target has relative to a _directory_.
+    fn relative_to_dir<P: AsRef<Path>>(&self, base: P) -> PathBuf;
 }
 
 impl<P: AsRef<Path>> PathExt for P {
-    fn relative_to<P2: AsRef<Path>>(&self, reference: P2) -> PathBuf {
-        // unimplemented!("{:?} relative_to: {:?}", self.as_ref(), base.as_ref());
-        let mut base = self.as_ref().components().peekable();
-        let mut rf = reference.as_ref().components().peekable();
+    fn relative_to_dir<P2: AsRef<Path>>(&self, base: P2) -> PathBuf {
+        println!("{:?} relative_to_dir: {:?}", self.as_ref(), base.as_ref());
+        let mut subject = self.as_ref().components().peekable();
+        let mut base_rf = base.as_ref().components().peekable();
+        let mut popped = VecDeque::new();
 
-        while base.peek() == rf.peek() {
-            let _ = base.next();
-            let _ = rf.next();
+        while subject
+            .peek()
+            .and_then(|b| base_rf.peek().map(|r| b == r))
+            .unwrap_or(false)
+        {
+            let subj = subject.next();
+            let _base = base_rf.next();
+
+            println!("Dicard: subj: {:?}; t: {:?}", subj, _base);
+            popped.push_back(subj);
         }
 
-        let remaining_base = base.map(|c| c.as_os_str()).collect::<PathBuf>();
-        // let remaining_ref = rf.map(|c| c.as_os_str()).collect::<PathBuf>();
-        // println!("base: {:?}; ref: {:?}", remaining_base, remaining_ref);
+        let remaining_subject = subject.map(|c| c.as_os_str()).collect::<PathBuf>();
+        let remaining_base = base_rf.clone().map(|c| c.as_os_str()).collect::<PathBuf>();
+        println!(
+            "remaining: subject: {:?}; base: {:?}",
+            remaining_subject, remaining_base
+        );
 
         let mut prefix = PathBuf::new();
-        for component in rf {
-            println!("Ref component: {:?}", component);
-            prefix.push("..");
+        for component in base_rf {
+            println!("Component: {:?}", component);
+            match component {
+                Component::CurDir => {}
+                Component::ParentDir => {
+                    if !prefix.pop() {
+                        unimplemented!("Pop start of prefix; common: {:?}", popped)
+                    }
+                }
+                _ => prefix.push(".."),
+            };
         }
 
-        // The last item here corresponds to the filename
-        prefix.pop();
-
-        return prefix.join(remaining_base);
+        println!("Prefix: {:?}; subj: {:?}", prefix, remaining_subject);
+        return prefix.join(remaining_subject);
     }
 }
 
@@ -500,37 +526,184 @@ mod test {
 
     #[test]
     fn path_relativize_should_handle_items_in_same_directory() {
-        assert_eq!(Path::new("hello").relative_to(&Path::new("world")),
-                Path::new("hello"));
+        assert_eq!(
+            Path::new("hello/world").relative_to_dir(&Path::new("hello")),
+            Path::new("world")
+        );
     }
 
     #[test]
     fn path_relativize_should_handle_subject_in_child_directory() {
-        assert_eq!(Path::new("hello/world").relative_to(&Path::new("me")),
-                Path::new("hello/world"));
+        assert_eq!(
+            Path::new("hello/world").relative_to_dir(&Path::new(".")),
+            Path::new("hello/world")
+        );
     }
 
     #[test]
     fn path_relativize_should_handle_base_in_child_directory() {
-        assert_eq!(Path::new("hello").relative_to(&Path::new("world/me")),
-                Path::new("../hello"));
+        assert_eq!(
+            Path::new("hello").relative_to_dir(&Path::new("world")),
+            Path::new("../hello")
+        );
+    }
+
+    #[test]
+    fn path_relativize_should_handle_base_in_child_directory_trailing_slash() {
+        assert_eq!(
+            Path::new("hello").relative_to_dir(&Path::new("world/")),
+            Path::new("../hello")
+        );
     }
 
     #[test]
     fn path_relativize_should_handle_items_in_same_directory_with_common_prefix() {
-        assert_eq!(Path::new("a/hello").relative_to(&Path::new("a/world")),
-                Path::new("hello"));
+        assert_eq!(
+            Path::new("a/hello/world").relative_to_dir(&Path::new("a/hello")),
+            Path::new("world")
+        );
     }
 
     #[test]
     fn path_relativize_should_handle_subject_in_child_directory_with_common_prefix() {
-        assert_eq!(Path::new("a/hello/world").relative_to(&Path::new("a/me")),
-                Path::new("hello/world"));
+        assert_eq!(
+            Path::new("a/hello/world").relative_to_dir(&Path::new("a/")),
+            Path::new("hello/world")
+        );
     }
 
     #[test]
     fn path_relativize_should_handle_base_in_child_directory_with_common_prefix() {
-        assert_eq!(Path::new("the/hello").relative_to(&Path::new("the/world/me")),
-                Path::new("../hello"));
+        assert_eq!(
+            Path::new("the/hello").relative_to_dir(&Path::new("the/world")),
+            Path::new("../hello")
+        );
+    }
+
+}
+
+#[cfg(all(test, feature = "impl_trait"))]
+mod model_tests {
+    use suppositions::*;
+    use suppositions::data::DataError;
+    use suppositions::generators::*;
+    use tempdir::TempDir;
+    use std::path::*;
+    use std::fs;
+    use super::*;
+
+    fn paths() -> impl Generator<Item = PathBuf> {
+        let component = one_of(consts("."))
+            .or(consts(".."))
+            .or(consts("foo"))
+            .or(consts("bar"))
+            .or(consts("baz"))
+            .or(consts("quux"))
+            .or(consts("quuux"));
+
+        vecs(component).map(|cs| cs.into_iter().collect::<PathBuf>())
+            // this part canonicalises the representation, discarding 
+            // trailing "/."s and the like.
+            .filter(|p| p.as_os_str().len() > 0)
+            .filter(|p| if let Some(Component::Normal(_)) = p.components().last()  { true } else { false } )
+            .map(|p| p.components().collect::<PathBuf>())
+    }
+
+    fn component_movement(depth: &mut isize, c: Component) -> Option<isize> {
+        let delta = match c {
+            Component::CurDir => 0,
+            Component::ParentDir => -1,
+            Component::Normal(_) => 1,
+            other => unimplemented!("cannot yet handle: {:?}", other),
+        };
+
+        *depth += delta;
+        Some(*depth)
+    }
+
+    fn mkpath(tmpd: &TempDir, path: &Path) -> ::std::result::Result<(), io::Error> {
+        let path = tmpd.path().join(path);
+        if let Some(p) = path.parent() {
+            println!("Create dir: {:?}", p);
+            fs::create_dir_all(p)?;
+        };
+
+        println!("Create file: {:?}", path);
+        let _ = fs::File::create(&path)?;
+        Ok(())
+    }
+    fn mkpaths(base: &Path, target: &Path) -> ::std::result::Result<TempDir, io::Error> {
+        let tmpd = TempDir::new("should_behave_as_filesystem_traversal").expect("tempdir");
+        for f in [&base, &target].iter() {
+            mkpath(&tmpd, f)?
+        }
+        Ok(tmpd)
+    }
+
+    #[test]
+    #[ignore]
+    fn should_behave_as_filesystem_traversal() {
+        let gen = (paths(), paths())
+            .filter(|&(ref base, ref target)| {
+                // Assert base is not a prefix of the target, and vica versa
+                return base.strip_prefix(&target).is_err() && target.strip_prefix(&base).is_err();
+            })
+            .filter(|&(ref base, ref target)| {
+                // Neither base nor target should ascend beyond their "root" for now.
+                let b = base.components().scan(0, component_movement).all(|d| d > 0);
+                let t = target
+                    .components()
+                    .scan(0, component_movement)
+                    .all(|d| d > 0);
+
+                b && t
+            })
+            .filter_map(|(base, target): (PathBuf, PathBuf)| {
+                println!("-- base: {:?}; target: {:?}", base, target);
+                match mkpaths(&base, &target) {
+                    Err(ref e) => {
+                        println!("E: {:?}; kind: {:?}", e, e.kind());
+                        return Err(DataError::SkipItem);
+                    }
+                    Ok(tmpd) => return Ok((tmpd, base, target)),
+                }
+            });
+
+        property(gen).check(|(tmpd, base, target)| {
+            let base_dir = base.parent().unwrap_or(Path::new("."));
+
+            let relpath = target.relative_to_dir(&base_dir);
+            println!("Relpath: {:?} / {:?}", relpath, tmpd.path().join(&relpath));
+            let base_dir_canon = tmpd.path()
+                .join(&base_dir)
+                .canonicalize()
+                .expect("canonicalize tmpd + base dir");
+            println!(
+                "Base: {:?} (dir {:?}); canonical: {:?}",
+                base, base_dir, base_dir_canon
+            );
+            let targ_canon = tmpd.path()
+                .join(&target)
+                .canonicalize()
+                .expect("canonicalize target");
+            println!("Target: {:?}; canonical: {:?}", target, targ_canon);
+            println!(
+                "Relpath joined to base: {:?}",
+                base_dir_canon.join(&relpath)
+            );
+            let rel_canon = base_dir_canon
+                .join(&relpath)
+                .canonicalize()
+                .expect("canonicalize tmpd + relpath");
+            println!("Relpath canonical: {:?}", rel_canon);
+
+            assert_eq!(targ_canon, rel_canon,
+                        "target {:?} (canonical {:?}) base {:?} (dir: {:?}; canon: {:?}) => relpath: {:?} canon: {:?}", 
+                            target, targ_canon,
+                            base, base_dir, base_dir_canon,
+                            relpath, rel_canon);
+
+            println!()
+        })
     }
 }
