@@ -197,6 +197,14 @@ struct Builder {
     default: bool,
 }
 
+fn dot_if_empty(p: &Path) -> &Path {
+    if p.as_os_str().is_empty() {
+        Path::new(".")
+    } else {
+        p
+    }
+}
+
 impl Builder {
     fn new(dofile: &Path, default: bool) -> Result<Builder> {
         let dofile = dofile
@@ -272,7 +280,10 @@ impl Builder {
 
         let mut cmd = Command::new("sh");
         {
-            let target_abs = Path::new(".").canonicalize()?.join(target);
+            let target_dir = target.parent().chain_err(|| format!("Target: {:?} missing parent", target))?;
+            let target_dir_abs = dot_if_empty(target_dir).canonicalize().chain_err(|| format!("canonicalize target dir {:?}", target_dir))?;
+            let target_filename = target.file_name().chain_err(|| format!("Target: {:?} missing filename", target))?;
+            let target_abs = target_dir_abs.join(target_filename);
             let builder_abs = self.dofile.canonicalize()?;
 
             debug!("Target : {:?}", target_abs /* .components().collect::<Vec<_>>()*/);
@@ -308,11 +319,8 @@ impl Builder {
             );
 
             let target_dir = target_abs.parent()
-                // .filter(|p| !p.is_empty())
                 .unwrap_or(Path::new("."));
-            let builder_dir = builder_abs.parent()
-                // .filter(|p| !p.is_empty())
-                .unwrap_or(Path::new("."));
+            let builder_dir = builder_abs.parent().chain_err(|| format!("Builder path {:?} has no parent", builder_abs))?;
             let target_name = target_abs.relative_to_dir(&builder_dir);
             warn!("{:?} relative_to_dir {:?} => {:?}", target_abs, builder_dir, target_name);
             let target_base = if self.default {
@@ -470,6 +478,10 @@ trait PathExt {
 impl<P: AsRef<Path>> PathExt for P {
     fn relative_to_dir<P2: AsRef<Path>>(&self, base: P2) -> PathBuf {
         println!("{:?} relative_to_dir: {:?}", self.as_ref(), base.as_ref());
+        assert!(self.as_ref().is_absolute(),
+                "subject path {:?} not absolute", self.as_ref());
+        assert!(base.as_ref().is_absolute(),
+                "base path {:?} not absolute", base.as_ref());
         let mut subject = self.as_ref().components().peekable();
         let mut base_rf = base.as_ref().components().peekable();
         let mut popped = VecDeque::new();
@@ -526,7 +538,7 @@ mod test {
     #[test]
     fn path_relativize_should_handle_items_in_same_directory() {
         assert_eq!(
-            Path::new("hello/world").relative_to_dir(&Path::new("hello")),
+            Path::new("/hello/world").relative_to_dir(&Path::new("/hello")),
             Path::new("world")
         );
     }
@@ -534,7 +546,7 @@ mod test {
     #[test]
     fn path_relativize_should_handle_subject_in_child_directory() {
         assert_eq!(
-            Path::new("hello/world").relative_to_dir(&Path::new(".")),
+            Path::new("/hello/world").relative_to_dir(&Path::new("/.")),
             Path::new("hello/world")
         );
     }
@@ -542,7 +554,7 @@ mod test {
     #[test]
     fn path_relativize_should_handle_base_in_child_directory() {
         assert_eq!(
-            Path::new("hello").relative_to_dir(&Path::new("world")),
+            Path::new("/hello").relative_to_dir(&Path::new("/world")),
             Path::new("../hello")
         );
     }
@@ -550,7 +562,7 @@ mod test {
     #[test]
     fn path_relativize_should_handle_base_in_child_directory_trailing_slash() {
         assert_eq!(
-            Path::new("hello").relative_to_dir(&Path::new("world/")),
+            Path::new("/hello").relative_to_dir(&Path::new("/world/")),
             Path::new("../hello")
         );
     }
@@ -558,7 +570,7 @@ mod test {
     #[test]
     fn path_relativize_should_handle_items_in_same_directory_with_common_prefix() {
         assert_eq!(
-            Path::new("a/hello/world").relative_to_dir(&Path::new("a/hello")),
+            Path::new("/a/hello/world").relative_to_dir(&Path::new("/a/hello")),
             Path::new("world")
         );
     }
@@ -566,27 +578,17 @@ mod test {
     #[test]
     fn path_relativize_should_handle_subject_in_child_directory_with_common_prefix() {
         assert_eq!(
-            Path::new("a/hello/world").relative_to_dir(&Path::new("a/")),
+            Path::new("/a/hello/world").relative_to_dir(&Path::new("/a/")),
             Path::new("hello/world")
         );
     }
 
+
     #[test]
     fn path_relativize_should_handle_base_in_child_directory_with_common_prefix() {
         assert_eq!(
-            Path::new("the/hello").relative_to_dir(&Path::new("the/world")),
+            Path::new("/the/hello").relative_to_dir(&Path::new("/the/world")),
             Path::new("../hello")
-        );
-    }
-
-    #[test]
-    #[ignore]
-    fn path_relativize_should_handle_child_then_parent() {
-        // builder: ./t/121-defaults-nested/a/default.x.y.z.do
-        // Target: ...
-        assert_eq!(
-            Path::new("../file.x.y.z").relative_to_dir(&Path::new("b/")),
-            Path::new("file.x.y.z")
         );
     }
 }
