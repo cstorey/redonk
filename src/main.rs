@@ -215,6 +215,9 @@ impl Builder {
     }
 
     fn base_of<'a>(&self, target_name: &'a Path) -> Result<&'a OsStr> {
+        let target_name_s = target_name
+            .to_str()
+            .chain_err(|| format!("Target file {:?} not utf-8 encoded?", &target_name))?;
         let target_fname = target_name
             .file_name()
             .chain_err(|| format!("Target {:?} has no file name?", &target_name))?
@@ -231,8 +234,8 @@ impl Builder {
         let target_base = if pattern.starts_with(default_prefix) {
             let p_tail = &pattern[default_prefix.len()..pattern.len() - do_suffix.len()];
 
-            let base_end = target_fname.len() - p_tail.len();
-            let t_tail = &target_fname[base_end..];
+            let base_end = target_name_s.len() - p_tail.len();
+            let t_tail = &target_name_s[base_end..];
 
             // Clearly, I've missed a way to not have to re-derive this.
             // Maybe figure this out when scanning for build files?
@@ -245,9 +248,9 @@ impl Builder {
                 t_tail,
                 target_fname
             );
-            &target_fname[..base_end]
+            &target_name_s[..base_end]
         } else {
-            target_fname
+            target_name_s
         };
 
         debug!(
@@ -342,8 +345,7 @@ impl Builder {
                 // $2: Basename of the target
                 .arg(&target_base)
                 // $3: temporary output file.
-                .arg(tmpf.path().file_name()
-                        .chain_err(|| format!("Filename of temporary file: {:?}", tmpf))?);
+                .arg(tmpf.path().relative_to_dir(&builder_dir));
             cmd.current_dir(builder_dir);
         }
 
