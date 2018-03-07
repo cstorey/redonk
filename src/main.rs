@@ -207,6 +207,26 @@ impl Item {
     fn path(&self) -> &Path {
         &self.name
     }
+
+    fn abs_path(&self) -> Result<PathBuf> {
+        let target_dir = self.dir_path()?;
+        let target_dir_abs = target_dir
+            .canonicalize()
+            .chain_err(|| format!("canonicalize target dir {:?}", target_dir))?;
+        let target_filename = self.file_name()?;
+        Ok(target_dir_abs.join(target_filename))
+    }
+
+    fn tempfile(&self) -> Result<(fs::File, PathBuf)> {
+        let mut path: PathBuf = self.abs_path()?;
+        let mut tmpf_path = path.file_name()
+            .chain_err(|| format!("Target with no filename? {:?}", self))?
+            .to_owned();
+        tmpf_path.push(".tmpf-redonk");
+        path.set_file_name(tmpf_path);
+        let tmpf = fs::File::create(&path)?;
+        Ok((tmpf, path))
+    }
 }
 
 #[derive(Debug)]
@@ -279,61 +299,47 @@ impl Builder {
     }
 
     fn perform(&self, target: &Item, xtrace: bool) -> Result<()> {
-        let target_dir = target.dir_path()?;
-        let target_dir_abs = target_dir
-            .canonicalize()
-            .chain_err(|| format!("canonicalize target dir {:?}", target_dir))?;
-        let target_filename = target.file_name()?;
-        let target_abs = target_dir_abs.join(target_filename);
+        let target_abs = target.abs_path()?;
 
-        let (tmpf, tmpf_path) = {
-            let mut path: PathBuf = target_abs.clone();
-            let mut tmpf_path = path.file_name()
-                .chain_err(|| format!("Target with no filename? {:?}", target))?
-                .to_owned();
-            tmpf_path.push(".tmpf-redonk");
-            path.set_file_name(tmpf_path);
-            let tmpf = fs::File::create(&path)?;
-            (tmpf, path)
-        };
+        let (tmpf, tmpf_path) = target.tempfile()?;
+        debug!(
+            "Target : {:?}",
+            target_abs /* .components().collect::<Vec<_>>()*/
+        );
 
+        let mut cmd = self.build_command(&target_abs, tmpf, &tmpf_path, xtrace)?;
+        debug!("⇒ {:?} ({:?})", self.dofile, cmd);
+        let res = cmd.spawn()?.wait()?;
+        debug!("⇐ {:?}", self.dofile);
+
+        if !res.success() {
+            return Err(format!(
+                "Dofile: {:?} exited with code:{:?}",
+                self.dofile,
+                res.code()
+            ).into());
+        }
+
+        debug!("{:?} → {:?}", tmpf_path, target);
+        fs::rename(tmpf_path, target.path()).chain_err(|| "Persist output tempfile")?;
+
+        Ok(())
+    }
+
+    fn build_command(
+        &self,
+        target_abs: &Path,
+        tmpf: fs::File,
+        tmpf_path: &Path,
+        xtrace: bool,
+    ) -> Result<Command> {
         let mut cmd = Command::new("sh");
         {
             let builder_abs = self.dofile.canonicalize()?;
 
             debug!(
-                "Target : {:?}",
-                target_abs /* .components().collect::<Vec<_>>()*/
-            );
-            debug!(
                 "Builder: {:?}",
                 builder_abs /*.components().collect::<Vec<_>>()  */
-            );
-
-            // It _looks_ like the .do files need to be run from their current
-            // working directory., so things like `./CC foo bar` work. In
-            // other words, this is utterly wrong.
-            //
-            // Hence; we need to derive the target path relative to the build
-            // file, and pass _that_ in as the various target parameters.
-            //
-            // On the other hand, we know that the build file will _always_ be
-            // in an ancestor directory of the target.
-            //
-            // https://github.com/dmlloyd/openjdk/blob/63e2f67762f09aa87cac5b4bbda7a285fde9edbe/src/java.base/unix/classes/sun/nio/fs/unixpath.java#l422-l507
-            // TODO: Finish off a port of the relativize method.
-            let common_prefix = target_abs
-                .components()
-                .zip(builder_abs.components())
-                .take_while(|&(tc, bc)| tc == bc)
-                .map(|(tc, _)| tc.as_os_str())
-                .collect::<PathBuf>();
-
-            debug!("Common prefix: {:?}", common_prefix);
-            debug!(
-                "Target: {:?}; builder: {:?}",
-                target_abs.strip_prefix(&common_prefix),
-                builder_abs.strip_prefix(&common_prefix)
             );
 
             let target_dir = target_abs.parent().unwrap_or(Path::new("."));
@@ -375,22 +381,7 @@ impl Builder {
         // Emulate apenwarr's minimal/do
         cmd.env("DO_BUILT", "t");
 
-        debug!("⇒ {:?} ({:?})", self.dofile, cmd);
-        let res = cmd.spawn()?.wait()?;
-        debug!("⇐ {:?}", self.dofile);
-
-        if !res.success() {
-            return Err(format!(
-                "Dofile: {:?} exited with code:{:?}",
-                self.dofile,
-                res.code()
-            ).into());
-        }
-
-        debug!("{:?} → {:?}", tmpf_path, target);
-        fs::rename(tmpf_path, target.path()).chain_err(|| "Persist output tempfile")?;
-
-        Ok(())
+        Ok(cmd)
     }
 }
 
