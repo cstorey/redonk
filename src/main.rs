@@ -25,7 +25,7 @@ use std::process::{self, Command};
 use std::fs;
 use std::io;
 use std::env;
-use std::ffi::OsStr;
+use std::ffi::{OsStr, OsString};
 use std::collections::VecDeque;
 
 use structopt::StructOpt;
@@ -182,12 +182,30 @@ impl Item {
                 env::current_dir()
             );
 
-            dofile.perform(&self.name, xtrace).chain_err(|| "perform")?;
+            dofile.perform(&self, xtrace).chain_err(|| "perform")?;
         } else {
             debug!("Presumed source file: {:?}", self);
         }
 
         Ok(())
+    }
+
+    fn dir_path(&self) -> Result<PathBuf> {
+        let dir = self.name
+            .parent()
+            .chain_err(|| format!("Target: {:?} missing parent", self))?;
+        Ok(dot_if_empty(dir).to_owned())
+    }
+
+    fn file_name(&self) -> Result<OsString> {
+        let file_name = self.name
+            .file_name()
+            .chain_err(|| format!("Target: {:?} missing filename", self))?;
+        Ok(file_name.to_owned())
+    }
+
+    fn path(&self) -> &Path {
+        &self.name
     }
 }
 
@@ -260,16 +278,12 @@ impl Builder {
         Ok(OsStr::new(target_base))
     }
 
-    fn perform(&self, target: &Path, xtrace: bool) -> Result<()> {
-        let target_dir = target
-            .parent()
-            .chain_err(|| format!("Target: {:?} missing parent", target))?;
-        let target_dir_abs = dot_if_empty(target_dir)
+    fn perform(&self, target: &Item, xtrace: bool) -> Result<()> {
+        let target_dir = target.dir_path()?;
+        let target_dir_abs = target_dir
             .canonicalize()
             .chain_err(|| format!("canonicalize target dir {:?}", target_dir))?;
-        let target_filename = target
-            .file_name()
-            .chain_err(|| format!("Target: {:?} missing filename", target))?;
+        let target_filename = target.file_name()?;
         let target_abs = target_dir_abs.join(target_filename);
 
         let (tmpf, tmpf_path) = {
@@ -282,11 +296,6 @@ impl Builder {
             let tmpf = fs::File::create(&path)?;
             (tmpf, path)
         };
-
-        debug!(
-            "target path components: {:?}",
-            target.components().collect::<Vec<_>>()
-        );
 
         let mut cmd = Command::new("sh");
         {
@@ -379,7 +388,7 @@ impl Builder {
         }
 
         debug!("{:?} → {:?}", tmpf_path, target);
-        fs::rename(tmpf_path, &target).chain_err(|| "Persist output tempfile")?;
+        fs::rename(tmpf_path, target.path()).chain_err(|| "Persist output tempfile")?;
 
         Ok(())
     }
