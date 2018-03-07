@@ -261,19 +261,26 @@ impl Builder {
     }
 
     fn perform(&self, target: &Path, xtrace: bool) -> Result<()> {
-        let tmpf = {
-            let fname: &Path = target.as_ref();
-            let parent = fname
-                .parent()
-                .into_iter()
-                .filter(|s| !s.as_os_str().is_empty())
-                .next()
-                .unwrap_or(Path::new("."));
+        let target_dir = target
+            .parent()
+            .chain_err(|| format!("Target: {:?} missing parent", target))?;
+        let target_dir_abs = dot_if_empty(target_dir)
+            .canonicalize()
+            .chain_err(|| format!("canonicalize target dir {:?}", target_dir))?;
+        let target_filename = target
+            .file_name()
+            .chain_err(|| format!("Target: {:?} missing filename", target))?;
+        let target_abs = target_dir_abs.join(target_filename);
 
-            let dir = parent
-                .canonicalize()
-                .chain_err(|| format!("perform: canon parent: {:?}", parent))?;
-            tempfile::NamedTempFile::new_in(dir)?
+        let (tmpf, tmpf_path) = {
+            let mut path: PathBuf = target_abs.clone();
+            let mut tmpf_path = path.file_name()
+                .chain_err(|| format!("Target with no filename? {:?}", target))?
+                .to_owned();
+            tmpf_path.push(".tmpf-redonk");
+            path.set_file_name(tmpf_path);
+            let tmpf = fs::File::create(&path)?;
+            (tmpf, path)
         };
 
         debug!(
@@ -283,16 +290,15 @@ impl Builder {
 
         let mut cmd = Command::new("sh");
         {
-            let target_dir = target.parent().chain_err(|| format!("Target: {:?} missing parent", target))?;
-            let target_dir_abs = dot_if_empty(target_dir).canonicalize().chain_err(|| format!("canonicalize target dir {:?}", target_dir))?;
-            let target_filename = target.file_name().chain_err(|| format!("Target: {:?} missing filename", target))?;
-            let target_abs = target_dir_abs.join(target_filename);
             let builder_abs = self.dofile.canonicalize()?;
 
-            debug!("Target : {:?}", target_abs /* .components().collect::<Vec<_>>()*/);
+            debug!(
+                "Target : {:?}",
+                target_abs /* .components().collect::<Vec<_>>()*/
+            );
             debug!(
                 "Builder: {:?}",
-                builder_abs/*.components().collect::<Vec<_>>()  */
+                builder_abs /*.components().collect::<Vec<_>>()  */
             );
 
             // It _looks_ like the .do files need to be run from their current
@@ -321,11 +327,15 @@ impl Builder {
                 builder_abs.strip_prefix(&common_prefix)
             );
 
-            let target_dir = target_abs.parent()
-                .unwrap_or(Path::new("."));
-            let builder_dir = builder_abs.parent().chain_err(|| format!("Builder path {:?} has no parent", builder_abs))?;
+            let target_dir = target_abs.parent().unwrap_or(Path::new("."));
+            let builder_dir = builder_abs
+                .parent()
+                .chain_err(|| format!("Builder path {:?} has no parent", builder_abs))?;
             let target_name = target_abs.relative_to_dir(&builder_dir);
-            warn!("{:?} relative_to_dir {:?} => {:?}", target_abs, builder_dir, target_name);
+            warn!(
+                "{:?} relative_to_dir {:?} => {:?}",
+                target_abs, builder_dir, target_name
+            );
             let target_base = if self.default {
                 self.base_of(&target_name)?
             } else {
@@ -338,18 +348,20 @@ impl Builder {
             );
 
             cmd.arg("-e");
-            if xtrace { cmd.arg("-x"); };
+            if xtrace {
+                cmd.arg("-x");
+            };
             cmd.arg(&self.dofile)
                 // $1: Target name
                 .arg(&target_name)
                 // $2: Basename of the target
                 .arg(&target_base)
                 // $3: temporary output file.
-                .arg(tmpf.path().relative_to_dir(&builder_dir));
+                .arg(tmpf_path.relative_to_dir(&builder_dir));
             cmd.current_dir(builder_dir);
         }
 
-        cmd.stdout(tmpf.reopen()?);
+        cmd.stdout(tmpf);
 
         // Emulate apenwarr's minimal/do
         cmd.env("DO_BUILT", "t");
@@ -366,8 +378,8 @@ impl Builder {
             ).into());
         }
 
-        debug!("{:?} → {:?}", tmpf.path(), target);
-        fs::rename(tmpf.path(), &target).chain_err(|| "Persist output tempfile")?;
+        debug!("{:?} → {:?}", tmpf_path, target);
+        fs::rename(tmpf_path, &target).chain_err(|| "Persist output tempfile")?;
 
         Ok(())
     }
@@ -482,10 +494,16 @@ trait PathExt {
 impl<P: AsRef<Path>> PathExt for P {
     fn relative_to_dir<P2: AsRef<Path>>(&self, base: P2) -> PathBuf {
         println!("{:?} relative_to_dir: {:?}", self.as_ref(), base.as_ref());
-        assert!(self.as_ref().is_absolute(),
-                "subject path {:?} not absolute", self.as_ref());
-        assert!(base.as_ref().is_absolute(),
-                "base path {:?} not absolute", base.as_ref());
+        assert!(
+            self.as_ref().is_absolute(),
+            "subject path {:?} not absolute",
+            self.as_ref()
+        );
+        assert!(
+            base.as_ref().is_absolute(),
+            "base path {:?} not absolute",
+            base.as_ref()
+        );
         let mut subject = self.as_ref().components().peekable();
         let mut base_rf = base.as_ref().components().peekable();
         let mut popped = VecDeque::new();
@@ -586,7 +604,6 @@ mod test {
             Path::new("hello/world")
         );
     }
-
 
     #[test]
     fn path_relativize_should_handle_base_in_child_directory_with_common_prefix() {
