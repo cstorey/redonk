@@ -27,6 +27,7 @@ use std::io;
 use std::env;
 use std::ffi::{OsStr, OsString};
 use std::collections::VecDeque;
+use std::os::linux::fs::MetadataExt;
 
 use structopt::StructOpt;
 
@@ -332,56 +333,70 @@ impl Builder {
         tmpf: fs::File,
         tmpf_path: &Path,
         xtrace: bool,
-    ) -> Result<Command> {
-        let mut cmd = Command::new("sh");
-        {
-            let builder_abs = self.dofile.canonicalize()?;
+        ) -> Result<Command> {
+        let builder_abs = self.dofile.canonicalize()?;
 
-            debug!(
+        debug!(
                 "Builder: {:?}",
                 builder_abs /*.components().collect::<Vec<_>>()  */
-            );
+              );
 
-            let target_dir = target_abs.parent().unwrap_or(Path::new("."));
-            let builder_dir = builder_abs
-                .parent()
-                .chain_err(|| format!("Builder path {:?} has no parent", builder_abs))?;
-            let target_name = target_abs.relative_to_dir(&builder_dir);
-            warn!(
+        let target_dir = target_abs.parent().unwrap_or(Path::new("."));
+        let builder_dir = builder_abs
+            .parent()
+            .chain_err(|| format!("Builder path {:?} has no parent", builder_abs))?;
+        let target_name = target_abs.relative_to_dir(&builder_dir);
+        warn!(
                 "{:?} relative_to_dir {:?} => {:?}",
                 target_abs, builder_dir, target_name
-            );
-            let target_base = if self.default {
-                self.base_of(&target_name)?
-            } else {
-                target_name.as_ref()
-            };
+             );
+        let target_base = if self.default {
+            self.base_of(&target_name)?
+        } else {
+            target_name.as_ref()
+        };
 
-            debug!(
+        debug!(
                 "target_name: {:?}; base: {:?}; cwd: {:?}",
                 target_name, target_base, target_dir
-            );
-
+              );
+        let mut cmd = if self.is_executable()? {
+            Command::new(&self.dofile)
+        } else {
+            let mut cmd = Command::new("sh");
             cmd.arg("-e");
             if xtrace {
                 cmd.arg("-x");
             };
-            cmd.arg(&self.dofile)
-                // $1: Target name
-                .arg(&target_name)
-                // $2: Basename of the target
-                .arg(&target_base)
-                // $3: temporary output file.
-                .arg(tmpf_path.relative_to_dir(&builder_dir));
-            cmd.current_dir(builder_dir);
-        }
+            cmd.arg(&self.dofile);
+            cmd
+        };
 
-        cmd.stdout(tmpf);
+        cmd
+            // $1: Target name
+            .arg(&target_name)
+            // $2: Basename of the target
+            .arg(&target_base)
+            // $3: temporary output file.
+            .arg(tmpf_path.relative_to_dir(&builder_dir));
+        cmd.current_dir(builder_dir);
+
+            cmd.stdout(tmpf);
 
         // Emulate apenwarr's minimal/do
         cmd.env("DO_BUILT", "t");
 
         Ok(cmd)
+    }
+
+
+    fn is_executable(&self) -> Result<bool> {
+        let stat = fs::metadata(&self.dofile)?;
+        let mode_bits = stat.st_mode();
+
+        // For now, assume that if _any_ are set, then it's meant to be executed.
+        // the alternative is to try `execve` and fall back otherwise, AFAICS.
+        Ok((mode_bits & 0o0111) != 0)
     }
 }
 

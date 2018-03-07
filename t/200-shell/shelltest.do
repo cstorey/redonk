@@ -5,6 +5,7 @@ cd ..
 RV=$?
 case $RV in
 	40) exit 0 ;;
+	41) exit 0 ;;
 	42) exit 0 ;;
 	*) exit 1 ;;
 esac

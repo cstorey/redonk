@@ -160,7 +160,7 @@ example!(t_121_defaults_nested, "121-defaults-nested");
 example!(t_130_mode, "130-mode");
 example!(t_140_shuffle, "140-shuffle");
 example!(t_141_keep_going, "141-keep-going");
-// example!(t_200_shell, "200-shell");
+example!(t_200_shell, "200-shell");
 example!(t_201_fail, "201-fail");
 // example!(t_202_del, "202-del");
 example!(t_220_ifcreate, "220-ifcreate");
