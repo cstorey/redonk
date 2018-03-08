@@ -331,13 +331,13 @@ impl Builder {
         tmpf: fs::File,
         tmpf_path: &Path,
         xtrace: bool,
-        ) -> Result<Command> {
+    ) -> Result<Command> {
         let builder_abs = self.dofile.canonicalize()?;
 
         debug!(
-                "Builder: {:?}",
-                builder_abs /*.components().collect::<Vec<_>>()  */
-              );
+            "Builder: {:?}",
+            builder_abs /*.components().collect::<Vec<_>>()  */
+        );
 
         let target_dir = target_abs.parent().unwrap_or(Path::new("."));
         let builder_dir = builder_abs
@@ -345,9 +345,9 @@ impl Builder {
             .chain_err(|| format!("Builder path {:?} has no parent", builder_abs))?;
         let target_name = target_abs.relative_to_dir(&builder_dir);
         warn!(
-                "{:?} relative_to_dir {:?} => {:?}",
-                target_abs, builder_dir, target_name
-             );
+            "{:?} relative_to_dir {:?} => {:?}",
+            target_abs, builder_dir, target_name
+        );
         let target_base = if self.default {
             self.base_of(&target_name)?
         } else {
@@ -355,9 +355,9 @@ impl Builder {
         };
 
         debug!(
-                "target_name: {:?}; base: {:?}; cwd: {:?}",
-                target_name, target_base, target_dir
-              );
+            "target_name: {:?}; base: {:?}; cwd: {:?}",
+            target_name, target_base, target_dir
+        );
         let mut cmd = if self.is_executable()? {
             Command::new(&self.dofile)
         } else {
@@ -379,14 +379,13 @@ impl Builder {
             .arg(tmpf_path.relative_to_dir(&builder_dir));
         cmd.current_dir(builder_dir);
 
-            cmd.stdout(tmpf);
+        cmd.stdout(tmpf);
 
         // Emulate apenwarr's minimal/do
         cmd.env("DO_BUILT", "t");
 
         Ok(cmd)
     }
-
 
     fn is_executable(&self) -> Result<bool> {
         let stat = fs::metadata(&self.dofile)?;
