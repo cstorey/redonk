@@ -219,6 +219,9 @@ impl Item {
 
     fn abs_path(&self) -> Result<PathBuf> {
         let target_dir = self.dir_path()?;
+        if !exists(&target_dir)? {
+            fs::create_dir_all(&target_dir)?;
+        }
         let target_dir_abs = target_dir
             .canonicalize()
             .chain_err(|| format!("canonicalize target dir {:?}", target_dir))?;
