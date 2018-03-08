@@ -522,7 +522,7 @@ trait PathExt {
 
 impl<P: AsRef<Path>> PathExt for P {
     fn relative_to_dir<P2: AsRef<Path>>(&self, base: P2) -> PathBuf {
-        println!("{:?} relative_to_dir: {:?}", self.as_ref(), base.as_ref());
+        trace!("{:?} relative_to_dir: {:?}", self.as_ref(), base.as_ref());
         assert!(
             self.as_ref().is_absolute(),
             "subject path {:?} not absolute",
@@ -545,20 +545,20 @@ impl<P: AsRef<Path>> PathExt for P {
             let subj = subject.next();
             let _base = base_rf.next();
 
-            println!("Dicard: subj: {:?}; t: {:?}", subj, _base);
+            trace!("Dicard: subj: {:?}; t: {:?}", subj, _base);
             popped.push_back(subj);
         }
 
         let remaining_subject = subject.map(|c| c.as_os_str()).collect::<PathBuf>();
         let remaining_base = base_rf.clone().map(|c| c.as_os_str()).collect::<PathBuf>();
-        println!(
+        trace!(
             "remaining: subject: {:?}; base: {:?}",
             remaining_subject, remaining_base
         );
 
         let mut prefix = PathBuf::new();
         for component in base_rf {
-            println!("Component: {:?}", component);
+            trace!("Component: {:?}", component);
             match component {
                 Component::CurDir => {}
                 Component::ParentDir => {
@@ -570,7 +570,7 @@ impl<P: AsRef<Path>> PathExt for P {
             };
         }
 
-        println!("Prefix: {:?}; subj: {:?}", prefix, remaining_subject);
+        trace!("Prefix: {:?}; subj: {:?}", prefix, remaining_subject);
         return prefix.join(remaining_subject);
     }
 }
@@ -685,11 +685,11 @@ mod model_tests {
     fn mkpath(tmpd: &TempDir, path: &Path) -> ::std::result::Result<(), io::Error> {
         let path = tmpd.path().join(path);
         if let Some(p) = path.parent() {
-            println!("Create dir: {:?}", p);
+            trace!("Create dir: {:?}", p);
             fs::create_dir_all(p)?;
         };
 
-        println!("Create file: {:?}", path);
+        trace!("Create file: {:?}", path);
         let _ = fs::File::create(&path)?;
         Ok(())
     }
