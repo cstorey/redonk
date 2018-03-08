@@ -5,8 +5,10 @@ extern crate clap;
 extern crate env_logger;
 #[macro_use]
 extern crate error_chain;
+extern crate fs2;
 #[macro_use]
 extern crate log;
+extern crate rand;
 extern crate serde;
 #[macro_use]
 extern crate serde_derive;
@@ -27,6 +29,7 @@ use std::env;
 use std::ffi::{OsStr, OsString};
 use std::collections::VecDeque;
 use std::os::linux::fs::MetadataExt;
+use fs2::FileExt;
 
 use structopt::StructOpt;
 
@@ -218,13 +221,22 @@ impl Item {
 
     fn tempfile(&self) -> Result<(fs::File, PathBuf)> {
         let mut path: PathBuf = self.abs_path()?;
-        let mut tmpf_path = path.file_name()
+        let tmpf_lock = path.parent()
             .chain_err(|| format!("Target with no filename? {:?}", self))?
-            .to_owned();
-        tmpf_path.push(".tmpf-redonk");
-        path.set_file_name(tmpf_path);
-        let tmpf = fs::File::create(&path)?;
-        Ok((tmpf, path))
+            .join(".lock");
+
+        let lock = fs::File::create(&tmpf_lock)?;
+        lock.lock_exclusive()?;
+
+        loop {
+            let mut fname = self.file_name()?;
+            fname.push(format!(".tmpf-redonk-{:x}", rand::random::<u64>()));
+            path.set_file_name(fname);
+            if !exists(&path)? {
+                let tmpf = fs::File::create(&path)?;
+                return Ok((tmpf, path));
+            }
+        }
     }
 }
 

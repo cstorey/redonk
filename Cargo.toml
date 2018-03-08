@@ -7,12 +7,19 @@ version = "0.1.0"
 clap = "2.30.0"
 env_logger = "0.5.4"
 error-chain = "0.11.0"
+fs2 = "0.4.3"
 log = "0.4.1"
+rand = "0.4.2"
 serde = "1.0.27"
 serde_derive = "1.0.27"
 serde_json = "1.0.9"
 structopt = "0.2.3"
-suppositions = { version = "0.1.4", git = "https://github.com/cstorey/suppositions.git", rev = "42f93dc", optional = true }
+
+[dependencies.suppositions]
+git = "https://github.com/cstorey/suppositions.git"
+optional = true
+rev = "42f93dc"
+version = "0.1.4"
 
 [dev-dependencies]
 tempdir = "0.3.6"
