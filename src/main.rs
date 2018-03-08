@@ -13,7 +13,6 @@ extern crate serde_derive;
 extern crate serde_json;
 #[macro_use]
 extern crate structopt;
-extern crate tempfile;
 
 #[cfg(all(test, feature = "impl_trait"))]
 extern crate suppositions;
@@ -38,7 +37,6 @@ error_chain! {
     foreign_links {
         Io(::std::io::Error);
         Json(serde_json::Error);
-        TempFile(tempfile::PersistError);
     }
 }
 
