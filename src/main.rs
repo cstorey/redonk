@@ -219,7 +219,7 @@ impl Item {
         Ok(target_dir_abs.join(target_filename))
     }
 
-    fn tempfile(&self) -> Result<(fs::File, PathBuf)> {
+    fn tempfile(&self) -> Result<TempFile> {
         let mut path: PathBuf = self.abs_path()?;
         let tmpf_lock = path.parent()
             .chain_err(|| format!("Target with no filename? {:?}", self))?
@@ -234,10 +234,16 @@ impl Item {
             path.set_file_name(fname);
             if !exists(&path)? {
                 let tmpf = fs::File::create(&path)?;
-                return Ok((tmpf, path));
+                return Ok(TempFile { file: Some(tmpf), path: path });
             }
         }
     }
+}
+
+#[derive(Debug)]
+struct TempFile {
+    path: PathBuf,
+    file: Option<fs::File>,
 }
 
 #[derive(Debug)]
@@ -312,13 +318,13 @@ impl Builder {
     fn perform(&self, target: &Item, xtrace: bool) -> Result<()> {
         let target_abs = target.abs_path()?;
 
-        let (tmpf, tmpf_path) = target.tempfile()?;
+        let mut tmpf = target.tempfile()?;
         debug!(
             "Target : {:?}",
             target_abs /* .components().collect::<Vec<_>>()*/
         );
 
-        let mut cmd = self.build_command(&target_abs, tmpf, &tmpf_path, xtrace)?;
+        let mut cmd = self.build_command(&target_abs, &mut tmpf, xtrace)?;
         debug!("⇒ {:?} ({:?})", self.dofile, cmd);
         let res = cmd.spawn()?.wait()?;
         debug!("⇐ {:?}", self.dofile);
@@ -331,8 +337,8 @@ impl Builder {
             ).into());
         }
 
-        debug!("{:?} → {:?}", tmpf_path, target);
-        fs::rename(tmpf_path, target.path()).chain_err(|| "Persist output tempfile")?;
+        debug!("{:?} → {:?}", &tmpf.path, target);
+        fs::rename(tmpf.path, target.path()).chain_err(|| "Persist output tempfile")?;
 
         Ok(())
     }
@@ -340,8 +346,7 @@ impl Builder {
     fn build_command(
         &self,
         target_abs: &Path,
-        tmpf: fs::File,
-        tmpf_path: &Path,
+        tmpf: &mut TempFile,
         xtrace: bool,
     ) -> Result<Command> {
         let builder_abs = self.dofile.canonicalize()?;
@@ -388,10 +393,10 @@ impl Builder {
             // $2: Basename of the target
             .arg(&target_base)
             // $3: temporary output file.
-            .arg(tmpf_path.relative_to_dir(&builder_dir));
+            .arg(tmpf.path.relative_to_dir(&builder_dir));
         cmd.current_dir(builder_dir);
 
-        cmd.stdout(tmpf);
+        cmd.stdout(tmpf.file.take().expect("take stdout temp file"));
 
         // Emulate apenwarr's minimal/do
         cmd.env("DO_BUILT", "t");
