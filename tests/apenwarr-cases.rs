@@ -162,7 +162,7 @@ example!(t_140_shuffle, "140-shuffle");
 example!(t_141_keep_going, "141-keep-going");
 example!(t_200_shell, "200-shell");
 example!(t_201_fail, "201-fail");
-// example!(t_202_del, "202-del");
+example!(t_202_del, "202-del");
 example!(t_220_ifcreate, "220-ifcreate");
 // example!(t_250_makedir, "250-makedir");
 example!(t_350_deps, "350-deps");

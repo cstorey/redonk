@@ -227,26 +227,7 @@ impl Item {
     }
 
     fn tempfile(&self) -> Result<TempFile> {
-        let mut path: PathBuf = self.abs_path()?;
-        let tmpf_lock = path.parent()
-            .chain_err(|| format!("Target with no filename? {:?}", self))?
-            .join(".lock");
-
-        let lock = fs::File::create(&tmpf_lock)?;
-        lock.lock_exclusive()?;
-
-        loop {
-            let mut fname = self.file_name()?;
-            fname.push(format!(".tmpf-redonk-{:x}", rand::random::<u64>()));
-            path.set_file_name(fname);
-            if !exists(&path)? {
-                let tmpf = fs::File::create(&path)?;
-                return Ok(TempFile {
-                    file: Some(tmpf),
-                    path: path,
-                });
-            }
-        }
+        TempFile::sibling_of(&self.abs_path()?)
     }
 }
 
@@ -254,6 +235,32 @@ impl Item {
 struct TempFile {
     path: PathBuf,
     file: Option<fs::File>,
+}
+
+impl TempFile {
+    fn sibling_of(target: &Path) -> Result<TempFile> {
+        let mut path = target.to_owned();
+
+        let tmpf_lock = target
+            .parent()
+            .chain_err(|| format!("Target with no filename? {:?}", target))?
+            .join(".lock");
+
+        let lock = fs::File::create(&tmpf_lock)?;
+        lock.lock_exclusive()?;
+
+        loop {
+            path.set_file_name(format!(".tmpf-redonk-{:x}", rand::random::<u64>()));
+            if !exists(&path)? {
+                let tmpf = fs::File::create(&path)?;
+                lock.unlock()?;
+                return Ok(TempFile {
+                    file: Some(tmpf),
+                    path: path.to_owned(),
+                });
+            }
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -328,13 +335,14 @@ impl Builder {
     fn perform(&self, target: &Item, xtrace: bool) -> Result<()> {
         let target_abs = target.abs_path()?;
 
-        let mut tmpf = target.tempfile()?;
+        let mut stdout_temp = target.tempfile()?;
+        let mut named_temp = target.tempfile()?;
         debug!(
             "Target : {:?}",
             target_abs /* .components().collect::<Vec<_>>()*/
         );
 
-        let mut cmd = self.build_command(&target_abs, &mut tmpf, xtrace)?;
+        let mut cmd = self.build_command(&target_abs, &mut stdout_temp, &mut named_temp, xtrace)?;
         debug!("⇒ {:?} ({:?})", self.dofile, cmd);
         let res = cmd.spawn()?.wait()?;
         debug!("⇐ {:?}", self.dofile);
@@ -347,8 +355,29 @@ impl Builder {
             ).into());
         }
 
-        debug!("{:?} → {:?}", &tmpf.path, target);
-        fs::rename(tmpf.path, target.path()).chain_err(|| "Persist output tempfile")?;
+        let stdout_size = fs::metadata(&stdout_temp.path)?.len();
+        // it's fine if someone wants to delete $3.
+        let named_size = optionally_exists(fs::metadata(&named_temp.path))?
+            .map(|s| s.len())
+            .unwrap_or(0);
+
+        debug!("stdout: {:?} size:{:?}", &stdout_temp.path, stdout_size);
+        debug!("named: {:?} size:{:?}", &named_temp.path, named_size);
+
+        match (stdout_size, named_size) {
+            (0, 0) | (_, 0) => {
+                debug!("{:?} → {:?}", &stdout_temp.path, target);
+                fs::rename(stdout_temp.path, target.path())
+                    .chain_err(|| "Persist stdout tempfile")?;
+            }
+            (0, _) => {
+                debug!("{:?} → {:?}", &named_temp.path, target);
+                fs::rename(named_temp.path, target.path()).chain_err(|| "Persist stdout tempfile")?;
+            }
+            (_, _) => {
+                panic!("Both $3 and stdout written to!");
+            }
+        }
 
         Ok(())
     }
@@ -356,7 +385,8 @@ impl Builder {
     fn build_command(
         &self,
         target_abs: &Path,
-        tmpf: &mut TempFile,
+        stdout: &mut TempFile,
+        named_temp: &mut TempFile,
         xtrace: bool,
     ) -> Result<Command> {
         let builder_abs = self.dofile.canonicalize()?;
@@ -403,10 +433,10 @@ impl Builder {
             // $2: Basename of the target
             .arg(&target_base)
             // $3: temporary output file.
-            .arg(tmpf.path.relative_to_dir(&builder_dir));
+            .arg(named_temp.path.relative_to_dir(&builder_dir));
         cmd.current_dir(builder_dir);
 
-        cmd.stdout(tmpf.file.take().expect("take stdout temp file"));
+        cmd.stdout(stdout.file.take().expect("take stdout temp file"));
 
         // Emulate apenwarr's minimal/do
         cmd.env("DO_BUILT", "t");
