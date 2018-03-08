@@ -116,16 +116,22 @@ struct Item {
 }
 struct Store;
 
-fn exists(path: &Path) -> Result<bool> {
-    let exists = fs::metadata(&path).map(|_| true).or_else(|e| {
+fn optionally_exists<T>(r: ::std::result::Result<T, io::Error>) -> ::std::result::Result<Option<T>, io::Error> {
+    r.map(Some).or_else(|e| {
         if e.kind() == io::ErrorKind::NotFound {
-            Ok(false)
+            Ok(None)
         } else {
             Err(e)
         }
-    })?;
-    Ok(exists)
+    })
 }
+
+fn exists(path: &Path) -> Result<bool> {
+    let maybe_stat = optionally_exists(fs::metadata(&path))?;
+    Ok(maybe_stat.is_some())
+}
+
+
 impl Item {
     fn new_target(path: &Path) -> Self {
         Item {
@@ -429,14 +435,7 @@ impl Store {
 
     fn read(&self, name: &Path) -> Result<Option<Item>> {
         let state_file = self.state_file_of(name)?;
-        let readerp = fs::File::open(&state_file).map(Some).or_else(|e| {
-            if e.kind() == io::ErrorKind::NotFound {
-                Ok(None)
-            } else {
-                Err(e)
-            }
-        })?;
-        if let Some(r) = readerp {
+        if let Some(r) = optionally_exists(fs::File::open(&state_file))? {
             let res = serde_json::from_reader(r)?;
             Ok(Some(res))
         } else {
