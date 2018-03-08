@@ -116,7 +116,9 @@ struct Item {
 }
 struct Store;
 
-fn optionally_exists<T>(r: ::std::result::Result<T, io::Error>) -> ::std::result::Result<Option<T>, io::Error> {
+fn optionally_exists<T>(
+    r: ::std::result::Result<T, io::Error>,
+) -> ::std::result::Result<Option<T>, io::Error> {
     r.map(Some).or_else(|e| {
         if e.kind() == io::ErrorKind::NotFound {
             Ok(None)
@@ -130,7 +132,6 @@ fn exists(path: &Path) -> Result<bool> {
     let maybe_stat = optionally_exists(fs::metadata(&path))?;
     Ok(maybe_stat.is_some())
 }
-
 
 impl Item {
     fn new_target(path: &Path) -> Self {
@@ -240,7 +241,10 @@ impl Item {
             path.set_file_name(fname);
             if !exists(&path)? {
                 let tmpf = fs::File::create(&path)?;
-                return Ok(TempFile { file: Some(tmpf), path: path });
+                return Ok(TempFile {
+                    file: Some(tmpf),
+                    path: path,
+                });
             }
         }
     }
@@ -552,7 +556,8 @@ impl<P: AsRef<Path>> PathExt for P {
         let remaining_base = base_rf.clone().map(|c| c.as_os_str()).collect::<PathBuf>();
         trace!(
             "remaining: subject: {:?}; base: {:?}",
-            remaining_subject, remaining_base
+            remaining_subject,
+            remaining_base
         );
 
         let mut prefix = PathBuf::new();
