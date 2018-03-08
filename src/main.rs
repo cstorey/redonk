@@ -358,6 +358,11 @@ impl Builder {
             ).into());
         }
 
+        // The usptream version of t/250-del assumes that it's fine to delete
+        // the target and create a directory with the same name.
+
+        // We should track whether someone has modified the target directly.
+
         let stdout_size = fs::metadata(&stdout_temp.path)?.len();
         // it's fine if someone wants to delete $3.
         let named_size = optionally_exists(fs::metadata(&named_temp.path))?
